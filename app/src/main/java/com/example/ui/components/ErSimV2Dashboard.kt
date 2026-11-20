@@ -150,7 +150,8 @@ fun ErSimV2Screen(
                             onOpenFullScreenMap = onOpenFullScreenMap,
                             onOpenCrashCart = { onOpenCrashCart(null) },
                             onOpenEquipmentStabilize = { onSelectSideDrawerTab(SideDrawerTab.STABILIZE) },
-                            onOpenFullScreenTablet = { onOpenFullScreenTablet(null) }
+                            onOpenFullScreenTablet = { onOpenFullScreenTablet(null) },
+                            onPerformExamStep = onPerformExamStep
                         )
                         ClinicalWorkspaceTabsCard(
                             uiState = uiState,
@@ -213,7 +214,8 @@ fun ErSimV2Screen(
                         onOpenFullScreenMap = onOpenFullScreenMap,
                         onOpenCrashCart = { onOpenCrashCart(null) },
                         onOpenEquipmentStabilize = { onSelectSideDrawerTab(SideDrawerTab.STABILIZE) },
-                        onOpenFullScreenTablet = { onOpenFullScreenTablet(null) }
+                        onOpenFullScreenTablet = { onOpenFullScreenTablet(null) },
+                        onPerformExamStep = onPerformExamStep
                     )
 
                     // 3. Below Scene: Patient Overview, History, XABCDE, Examination, Investigations & Treatment Tabs
@@ -743,7 +745,8 @@ private fun ProminentResusBay3DCard(
     onOpenFullScreenMap: () -> Unit,
     onOpenCrashCart: () -> Unit,
     onOpenEquipmentStabilize: () -> Unit,
-    onOpenFullScreenTablet: () -> Unit
+    onOpenFullScreenTablet: () -> Unit,
+    onPerformExamStep: (String) -> Unit = {}
 ) {
     val room = uiState.activeRoom
     Surface(
@@ -766,7 +769,8 @@ private fun ProminentResusBay3DCard(
                 onOpenQuestionGate = onOpenQuestionGate,
                 onOpenCrashCart = onOpenCrashCart,
                 onOpenEquipmentStabilize = onOpenEquipmentStabilize,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                onPerformExamStep = onPerformExamStep
             )
 
             // Top-Left Bay Badge + Quick Question Gate Pills (Q0, Q1, Q2, Q3)
@@ -927,6 +931,12 @@ private fun ErSimPatientOverviewSidebarCard(
                 color = ErSimMint,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
+            )
+            val patientProfile = PatientCharacterRegistry.profileFor(activeCase)
+            Text(
+                text = "${patientProfile.regionState} • ${patientProfile.primaryLanguage} • History from: ${patientProfile.historian.label}",
+                color = ErSimTextMuted,
+                fontSize = 12.sp
             )
             Spacer(Modifier.height(6.dp))
             Text(
@@ -1136,6 +1146,12 @@ private fun ClinicalWorkspaceTabsCard(
                                 color = ErSimMint,
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.ExtraBold
+                            )
+                            val overviewProfile = PatientCharacterRegistry.profileFor(activeCase)
+                            Text(
+                                text = "${overviewProfile.regionState} • ${overviewProfile.primaryLanguage} • History from: ${overviewProfile.historian.label}",
+                                color = ErSimTextMuted,
+                                fontSize = 12.sp
                             )
                             Text(
                                 text = "Chief Complaint: ${activeCase.chiefComplaint}",

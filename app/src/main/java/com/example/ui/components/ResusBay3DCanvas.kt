@@ -31,13 +31,15 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
+import com.example.data.ExamRegion
+import com.example.data.PatientCharacterRegistry
 import com.example.data.QuestionGateType
 import com.example.ui.SimUiState
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.sin
 
 @Composable
@@ -48,13 +50,22 @@ fun ResusBay3DViewport(
     onOpenQuestionGate: (QuestionGateType) -> Unit,
     onOpenCrashCart: () -> Unit,
     onOpenEquipmentStabilize: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPerformExamStep: (String) -> Unit = {}
 ) {
     val activeCase = uiState.activeCase
     val vitals = uiState.currentVitals
     val room = uiState.activeRoom
     val q0Unlocked = room.unlockedGates.contains(QuestionGateType.Q0_GATE)
     val vent = uiState.currentVentilator
+    val q1Unlocked = room.unlockedGates.contains(QuestionGateType.Q1_SURVEY)
+
+    // Indian Patient Character System V1: typed character -> bay art + exam anchors
+    val patientCharacter = remember(activeCase.caseNumber) { PatientCharacterRegistry.characterFor(activeCase) }
+    val bayArt = remember(activeCase.caseNumber) {
+        PatientBayArtRegistry.artFor(patientCharacter, usePediatricBay = activeCase.isPediatricOrInfant)
+    }
+    var focusedExamRegion by remember(activeCase.caseNumber) { mutableStateOf<ExamRegion?>(null) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "live_monitor_anim")
     val ecgPhase by infiniteTransition.animateFloat(
@@ -118,18 +129,62 @@ fun ResusBay3DViewport(
                     cameraDistance = 18f * density
                 }
         ) {
-            val bayDrawableRes = if (activeCase.isPediatricOrInfant) {
-                R.drawable.img_resus_bay_peds_1795157817023
-            } else {
-                R.drawable.img_resus_bay_adult_1795157814594
-            }
-
             Image(
-                painter = painterResource(id = bayDrawableRes),
-                contentDescription = "Realistic 3D Resuscitation Bay with Patient, Monitor, Ventilator, and Crash Cart",
+                painter = painterResource(id = bayArt.drawableRes),
+                contentDescription = "Resuscitation bay with patient, monitor, ventilator and crash cart",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // BODY-REGION EXAM HOTSPOTS (follow pan/zoom; Q1-gated like the Exam tab)
+            val cropScale = max(viewportW.value / bayArt.imageWidthPx, viewportH.value / bayArt.imageHeightPx)
+            val drawnW = bayArt.imageWidthPx * cropScale
+            val drawnH = bayArt.imageHeightPx * cropScale
+            val cropOffX = (viewportW.value - drawnW) / 2f
+            val cropOffY = (viewportH.value - drawnH) / 2f
+            val pinSize = 30f
+            bayArt.examAnchors.forEach { (region, anchor) ->
+                val cx = cropOffX + anchor.x * drawnW
+                val cy = cropOffY + anchor.y * drawnH
+                if (cx < 0f || cy < 0f || cx > viewportW.value || cy > viewportH.value) return@forEach
+                val examined = uiState.performedExamKeys.contains(region.key)
+                Surface(
+                    color = when {
+                        !q1Unlocked -> ClinicalNavyHeader.copy(alpha = 0.78f)
+                        examined -> Color(0xFF059669).copy(alpha = 0.90f)
+                        else -> Color(0xFF0E7490).copy(alpha = 0.85f)
+                    },
+                    shape = CircleShape,
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color.White.copy(alpha = 0.9f)),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = (cx - pinSize / 2f).dp, y = (cy - pinSize / 2f).dp)
+                        .size(pinSize.dp)
+                        .clickable {
+                            if (!q1Unlocked) {
+                                onOpenQuestionGate(QuestionGateType.Q1_SURVEY)
+                            } else {
+                                onPerformExamStep(region.key)
+                                focusedExamRegion = region
+                            }
+                        }
+                        .testTag("bay_exam_hotspot_${region.key.lowercase()}")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = when {
+                                !q1Unlocked -> Icons.Default.Lock
+                                examined -> Icons.Default.CheckCircle
+                                else -> Icons.Default.TouchApp
+                            },
+                            contentDescription = "Examine ${region.title}" + if (!q1Unlocked) " (locked, crack Q1)" else "",
+                            tint = Color.White,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
 
             // LIVE 3D IN-WORLD ICU MONITOR & DEFIBRILLATOR DISPLAY OVERLAY
             // Positioned directly over the wall-mounted ICU monitor in the bay!
@@ -346,6 +401,77 @@ fun ResusBay3DViewport(
                         )
                     }
                 }
+            }
+        }
+
+        // EXAM FINDING CARD (fixed to viewport). Text comes only from activeCase.physicalExam.
+        val shownRegion = focusedExamRegion
+        AnimatedVisibility(
+            visible = shownRegion != null && q1Unlocked,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 12.dp, end = 12.dp, bottom = 60.dp)
+        ) {
+            if (shownRegion != null) {
+                Surface(
+                    color = Color(0xFF102234).copy(alpha = 0.96f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF51E3B2)),
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .widthIn(max = 420.dp)
+                        .testTag("bay_exam_finding_card")
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "${shownRegion.key} — ${shownRegion.title}",
+                                color = Color(0xFF51E3B2),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close finding",
+                                tint = Color(0xFF92ABBA),
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clickable { focusedExamRegion = null }
+                                    .padding(5.dp)
+                            )
+                        }
+                        Text(
+                            text = shownRegion.findingFor(activeCase.physicalExam),
+                            color = Color(0xFFE8F4FA),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Generic art that does not yet depict this patient
+        if (bayArt.isPlaceholder) {
+            Surface(
+                color = Color(0xFF07111B).copy(alpha = 0.72f),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 52.dp)
+                    .testTag("bay_placeholder_art_chip")
+            ) {
+                Text(
+                    text = "Placeholder patient art",
+                    color = Color(0xFFFFCB74),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                )
             }
         }
 
