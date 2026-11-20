@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">ER Resus Sim</string>
+    <string name="hud_fullscreen_tablet">Full Screen Tablet</string>
+    <string name="hud_fullscreen_map">Full Screen ER Map</string>
+    <string name="hud_crash_cart">CODE 100 Crash Cart</string>
+    <string name="hud_instructor_room">Admin / Instructor Control</string>
+    <string name="hud_case_selector">20 Oral Board Scenarios</string>
+    <string name="hud_audio_toggle">Resus Bay Audio</string>
+</resources>

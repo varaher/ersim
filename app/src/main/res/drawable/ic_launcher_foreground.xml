@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Emergency Medical Cross Shield -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M46,24 H62 V46 H84 V62 H62 V84 H46 V62 H24 V46 H46 Z" />
+    <!-- Bright Cyan ECG Pulse Line across the cross -->
+    <path
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M20,55 H38 L44,41 L51,71 L58,34 L64,61 L70,55 H88" />
+</vector>

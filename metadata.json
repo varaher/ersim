@@ -1,0 +1,6 @@
+{
+  "name": "ER Resus Sim",
+  "description": "3D Emergency Room Resuscitation Bay Simulator with 20 Oral Board Cases, Instructor Question Engine, Virtual Tablet, CODE 100 6-Drawer Crash Cart, and Live Telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
