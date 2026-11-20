@@ -17,14 +17,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.OralBoardRepository
 import com.example.ui.SideDrawerTab
 import com.example.ui.SimViewModel
+import com.example.ui.app.AppViewModel
+import com.example.ui.app.ErSimAppShell
+import com.example.ui.app.OnboardingScreen
+import com.example.ui.app.ThemeMode
 import com.example.ui.components.*
 import com.example.ui.theme.*
 
@@ -36,31 +45,101 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#07111B"))
         )
         setContent {
-            MyApplicationTheme {
-                ErResusSimulationApp()
-            }
+            ErSimRoot()
         }
+    }
+}
+
+// =============================================================================
+// ROOT: Onboarding -> App shell (Home / Cases / Profile / Settings) -> Simulation
+// =============================================================================
+@Composable
+fun ErSimRoot(
+    appViewModel: AppViewModel = viewModel(),
+    simViewModel: SimViewModel = viewModel()
+) {
+    val appState by appViewModel.state.collectAsStateWithLifecycle()
+    val simState by simViewModel.uiState.collectAsStateWithLifecycle()
+    var inSimulation by rememberSaveable { mutableStateOf(false) }
+
+    // Theme: app screens follow the setting; the resus bay is always dark
+    val systemDark = isSystemInDarkTheme()
+    val appDark = when (appState.settings.themeMode) {
+        ThemeMode.SYSTEM -> systemDark
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    val useDark = inSimulation || appDark
+    val activity = LocalContext.current as? ComponentActivity
+    LaunchedEffect(useDark) {
+        activity?.enableEdgeToEdge(
+            statusBarStyle = if (useDark) SystemBarStyle.dark(android.graphics.Color.parseColor("#0D1C2B"))
+            else SystemBarStyle.light(android.graphics.Color.WHITE, android.graphics.Color.parseColor("#0D1C2B")),
+            navigationBarStyle = if (useDark) SystemBarStyle.dark(android.graphics.Color.parseColor("#07111B"))
+            else SystemBarStyle.light(android.graphics.Color.WHITE, android.graphics.Color.parseColor("#07111B"))
+        )
+    }
+
+    // Apply settings when a case is entered or a setting changes
+    LaunchedEffect(inSimulation, appState.settings.soundEnabled, appState.settings.showJoystickByDefault) {
+        if (inSimulation) {
+            if (simViewModel.uiState.value.isAudioEnabled != appState.settings.soundEnabled) simViewModel.toggleAudio()
+            if (simViewModel.uiState.value.showJoystickControl != appState.settings.showJoystickByDefault) simViewModel.toggleJoystickVisibility()
+        }
+    }
+    val view = LocalView.current
+    DisposableEffect(inSimulation, appState.settings.keepScreenOnInCase) {
+        view.keepScreenOn = inSimulation && appState.settings.keepScreenOnInCase
+        onDispose { view.keepScreenOn = false }
+    }
+
+    MyApplicationTheme(darkTheme = useDark) {
+    when {
+        !appState.onboardingDone -> OnboardingScreen(onDone = appViewModel::completeOnboarding)
+
+        inSimulation -> ErResusSimulationApp(
+            simViewModel = simViewModel,
+            onExitToHome = { inSimulation = false }
+        )
+
+        else -> ErSimAppShell(
+            appState = appState,
+            lastCaseTitle = appState.progress.lastCaseNumber?.let { n ->
+                val c = OralBoardRepository.getCaseByNumber(n)
+                "Case ${c.caseNumber} • ${c.scenarioCategory}"
+            },
+            onStartCase = { n ->
+                simViewModel.assignCaseToRoom(simState.activeRoomId, n)
+                appViewModel.recordCaseStarted(n)
+                inSimulation = true
+            },
+            onResumeLastCase = {
+                val n = appState.progress.lastCaseNumber
+                if (n != null && simState.activeCase.caseNumber != n) {
+                    simViewModel.assignCaseToRoom(simState.activeRoomId, n)
+                }
+                inSimulation = true
+            },
+            onUpdateProfile = appViewModel::updateProfile,
+            onUpdateSettings = appViewModel::updateSettings,
+            onResetProgress = appViewModel::resetProgress,
+            onResetEverything = appViewModel::resetEverything
+        )
+    }
     }
 }
 
 @Composable
 fun ErResusSimulationApp(
-    simViewModel: SimViewModel = viewModel()
+    simViewModel: SimViewModel = viewModel(),
+    onExitToHome: () -> Unit = {}
 ) {
     val uiState by simViewModel.uiState.collectAsStateWithLifecycle()
     val room = uiState.activeRoom
     val activeCase = uiState.activeCase
 
-    BackHandler(
-        enabled = uiState.activeSideDrawer != null ||
-            uiState.isTabletFullScreen ||
-            uiState.isTabletOpen ||
-            uiState.isMapFullScreen ||
-            uiState.isCrashCartOpen ||
-            uiState.isInstructorControlOpen ||
-            uiState.isScenarioPickerOpen ||
-            uiState.activeQuestionGateModal != null
-    ) {
+    // Back closes the top overlay first; with nothing open it returns to Home
+    BackHandler(enabled = true) {
         when {
             uiState.activeQuestionGateModal != null -> simViewModel.closeQuestionModal()
             uiState.isMapFullScreen -> simViewModel.setMapFullScreen(false)
@@ -70,6 +149,7 @@ fun ErResusSimulationApp(
             uiState.isTabletFullScreen -> simViewModel.toggleTabletFullScreen()
             uiState.isTabletOpen -> simViewModel.setTabletOpen(false)
             uiState.activeSideDrawer != null -> simViewModel.selectSideDrawerTab(null)
+            else -> onExitToHome()
         }
     }
 
@@ -124,6 +204,7 @@ fun ErResusSimulationApp(
             onToggleAudio = simViewModel::toggleAudio,
             onToggleAlarmSilence = simViewModel::toggleAlarmSilence,
             onToggleJoystick = simViewModel::toggleJoystickVisibility,
+            onNavigateHome = onExitToHome,
             modifier = Modifier.fillMaxSize()
         )
 

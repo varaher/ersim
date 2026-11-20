@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -70,6 +71,7 @@ fun ErSimV2Screen(
     onToggleAudio: () -> Unit,
     onToggleAlarmSilence: () -> Unit,
     onToggleJoystick: () -> Unit,
+    onNavigateHome: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedWorkspaceTab by remember { mutableStateOf(ErSimWorkspaceTab.PATIENT_OVERVIEW) }
@@ -91,7 +93,8 @@ fun ErSimV2Screen(
             onOpenFullScreenMap = onOpenFullScreenMap,
             onToggleAudio = onToggleAudio,
             onToggleAlarmSilence = onToggleAlarmSilence,
-            onToggleJoystick = onToggleJoystick
+            onToggleJoystick = onToggleJoystick,
+            onNavigateHome = onNavigateHome
         )
 
         // 2. ADAPTIVE PORTRAIT / LANDSCAPE BODY
@@ -265,7 +268,8 @@ private fun ErSimTopHeaderBar(
     onOpenFullScreenMap: () -> Unit,
     onToggleAudio: () -> Unit,
     onToggleAlarmSilence: () -> Unit,
-    onToggleJoystick: () -> Unit
+    onToggleJoystick: () -> Unit,
+    onNavigateHome: (() -> Unit)? = null
 ) {
     val room = uiState.activeRoom
     val activeCase = uiState.activeCase
@@ -288,6 +292,21 @@ private fun ErSimTopHeaderBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onNavigateHome != null) {
+                    IconButton(
+                        onClick = onNavigateHome,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("sim_home_button")
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Home",
+                            tint = ErSimTextPrimary
+                        )
+                    }
+                }
                 Column {
                     Text(
                         text = buildAnnotatedString {
@@ -308,6 +327,7 @@ private fun ErSimTopHeaderBar(
                         letterSpacing = 1.1.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                }
                 }
 
                 // Bay & Scenario Indicator Chip (Tappable to open 20 Oral Board Scenarios)
