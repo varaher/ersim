@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ER SIM — Immersive Emergency Simulation</title>
+<style>
+:root {
+  --bg:#07111b;
+  --panel:#102234;
+  --panel2:#172e43;
+  --border:#29445a;
+  --mint:#51e3b2;
+  --text:#e8f4fa;
+  --muted:#92abba;
+  --red:#ff687b;
+  --amber:#ffcb74;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:Inter,system-ui,Arial,sans-serif;font-size:14px;
+}
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;padding:16px 22px;
+  background:#0d1c2b;border-bottom:1px solid var(--border);
+}
+.logo{font-size:25px;letter-spacing:2px;font-weight:900}
+.logo span{color:var(--mint)}
+.sub{font-size:11px;color:var(--muted)}
+button,select{font:inherit}
+button{
+  background:var(--panel2);color:var(--text);
+  border:1px solid var(--border);border-radius:10px;
+  padding:11px;cursor:pointer;
+}
+button:hover{border-color:var(--mint)}
+button:disabled{opacity:.4;cursor:default}
+.primary{background:var(--mint);color:#06211b;font-weight:800}
+.red{color:var(--red)}
+.mint{color:var(--mint)}
+.amber{color:var(--amber)}
+.layout{
+  max-width:1700px;margin:auto;padding:16px;
+  display:grid;grid-template-columns:245px minmax(0,1fr) 290px;
+  gap:14px;
+}
+.panel{
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:15px;padding:15px;margin-bottom:14px;
+}
+h3{
+  color:var(--muted);font-size:11px;letter-spacing:1.4px;
+  text-transform:uppercase;margin:0 0 13px;
+}
+h2{font-size:23px;margin:5px 0}
+p{color:#bdd0dc;line-height:1.6}
+select{
+  width:100%;padding:12px;background:var(--panel2);
+  color:white;border:1px solid var(--border);border-radius:9px;
+}
+.row{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;padding:8px 0;
+}
+.vitals{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:9px;
+}
+.vital{background:#061723;border-radius:11px;padding:13px}
+.vital small{color:var(--muted);font-size:10px}
+.vital strong{font-size:29px;display:block;margin:6px 0}
+.wave{
+  margin-top:12px;background:#030d13;padding:10px;
+  border-radius:10px;overflow:hidden;
+}
+.wave svg{width:100%;height:65px}
+.ecg{stroke:var(--mint);stroke-width:2.5;fill:none}
+.bay{
+  min-height:390px;background:
+    linear-gradient(180deg,#173643,#0a1926);
+  position:relative;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+}
+.bay:before{
+  content:"RESUSCITATION BAY 01";position:absolute;
+  top:16px;left:18px;color:#9abdc1;
+  letter-spacing:1.5px;font-size:11px;
+}
+.floor{
+  position:absolute;bottom:0;width:100%;height:35%;
+  background:linear-gradient(180deg,#203b47,#152633);
+  transform:skewY(-3deg);transform-origin:left;
+}
+.bed{
+  position:relative;width:180px;height:295px;
+  background:#9dbec2;border:12px solid #547b88;
+  border-radius:40px;
+  transform:perspective(650px) rotateX(24deg);
+  box-shadow:0 30px 60px #0009;
+}
+.patient-head{
+  position:absolute;top:20px;left:58px;
+  width:48px;height:55px;border-radius:50%;
+  background:#bb8971;cursor:pointer;
+}
+.patient-chest{
+  position:absolute;top:80px;left:32px;
+  width:100px;height:110px;background:#579e97;
+  border-radius:24px;cursor:pointer;
+}
+.patient-abdomen{
+  position:absolute;top:170px;left:42px;
+  width:80px;height:45px;background:#488c87;
+  cursor:pointer;
+}
+.patient-legs{
+  position:absolute;top:215px;left:47px;
+  width:70px;height:55px;background:#8ca9b1;
+  border-radius:5px 5px 18px 18px;cursor:pointer;
+}
+.hotspot:hover{
+  filter:brightness(1.4);outline:2px solid var(--mint);
+}
+.hint{
+  position:absolute;bottom:15px;color:#b9d9de;
+  font-size:12px;text-align:center;
+}
+.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.tabs .active{background:var(--mint);color:#06211b}
+.output{
+  min-height:100px;background:#0b1d2b;border-radius:10px;
+  padding:15px;color:#c8d9e2;line-height:1.7;
+  white-space:pre-wrap;
+}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.actions button{text-align:left;min-height:55px}
+.timeline{max-height:320px;overflow-y:auto}
+.event{padding:10px 0;border-bottom:1px solid var(--border)}
+.event small{color:var(--mint)}
+.modal{
+  position:fixed;inset:0;background:#000b;
+  display:none;align-items:center;justify-content:center;
+  z-index:20;padding:18px;
+}
+.modal.open{display:flex}
+.dialog{
+  width:min(520px,100%);background:var(--panel);
+  border:1px solid var(--border);border-radius:18px;padding:22px;
+}
+.dialog h2{margin-bottom:14px}
+.dialog p{white-space:pre-wrap}
+.dialog-actions{display:flex;gap:10px;justify-content:flex-end}
+footer{text-align:center;padding:20px;color:var(--muted)}
+@media(max-width:1100px){
+  .layout{grid-template-columns:220px minmax(0,1fr)}
+  .right{grid-column:1/-1}
+}
+@media(max-width:700px){
+  .layout{display:block;padding:10px}
+  .vitals{grid-template-columns:repeat(2,1fr)}
+  header{padding:12px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">ER <span>SIM</span></div>
+    <div class="sub">IMMERSIVE EMERGENCY MEDICINE</div>
+  </div>
+  <div>
+    <strong id="timer">00:00</strong>
+    <button id="pauseBtn">Pause</button>
+    <button id="restartBtn">Restart</button>
+    <button id="endBtn">End Case</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <section class="panel">
+      <h3>Patient Overview</h3>
+      <h2 id="patientName"></h2>
+      <p id="patientAge"></p>
+      <p id="complaint"></p>
+      <div class="row">
+        <span>Triage</span><strong class="red">RED</strong>
+      </div>
+      <div class="row">
+        <span>Location</span><strong>Resus 01</strong>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Simulation Library</h3>
+      <select id="caseSelect">
+        <option value="sepsis">01 — Septic Shock</option>
+        <option value="acs">02 — Acute Chest Pain</option>
+        <option value="asthma">03 — Severe Asthma</option>
+      </select>
+    </section>
+
+    <section class="panel">
+      <h3>Progress</h3>
+      <h2 id="progress">0 / 8</h2>
+      <p>Actions performed during this simulation.</p>
+    </section>
+  </aside>
+
+  <main>
+    <section class="panel">
+      <h3>Continuous Patient Monitoring</h3>
+      <div class="vitals">
+        <div class="vital">
+          <small>HEART RATE</small>
+          <strong class="mint" id="hr"></strong>
+          <small>bpm</small>
+        </div>
+        <div class="vital">
+          <small>BLOOD PRESSURE</small>
+          <strong class="red" id="bp"></strong>
+          <small>mmHg</small>
+        </div>
+        <div class="vital">
+          <small>OXYGEN SATURATION</small>
+          <strong class="amber" id="spo2"></strong>
+          <small>%</small>
+        </div>
+        <div class="vital">
+          <small>RESPIRATORY RATE</small>
+          <strong id="rr"></strong>
+          <small>/min</small>
+        </div>
+      </div>
+      <div class="wave">
+        <svg viewBox="0 0 600 70" preserveAspectRatio="none">
+          <path class="ecg" d="
+          M0 42 L40 42 L55 35 L65 52 L75 5
+          L85 62 L95 42 L125 42 Q145 25 165 42
+          L200 42 L240 42 L255 35 L265 52
+          L275 5 L285 62 L295 42 L325 42
+          Q345 25 365 42 L400 42
+          L440 42 L455 35 L465 52 L475 5
+          L485 62 L495 42 L525 42
+          Q545 25 565 42 L600 42"/>
+        </svg>
+        <small class="mint">SIMULATED ECG — DEMONSTRATION</small>
+      </div>
+    </section>
+
+    <section class="panel bay">
+      <div class="floor"></div>
+      <div class="bed">
+        <div class="patient-head hotspot" data-body="head"
+          title="Assess head and neurological status"></div>
+        <div class="patient-chest hotspot" data-body="chest"
+          title="Examine chest"></div>
+        <div class="patient-abdomen hotspot" data-body="abdomen"
+          title="Examine abdomen"></div>
+        <div class="patient-legs hotspot" data-body="limbs"
+          title="Examine limbs"></div>
+      </div>
+      <div class="hint">Select a body region to examine the patient</div>
+    </section>
+
+    <section class="panel">
+      <div class="tabs">
+        <button class="active" data-tab="history">History</button>
+        <button data-tab="assessment">Assessment</button>
+        <button data-tab="investigations">Investigations</button>
+        <button data-tab="treatment">Treatment</button>
+      </div>
+      <div class="output" id="output"></div>
+    </section>
+  </main>
+
+  <aside class="right">
+    <section class="panel">
+      <h3>Clinical Action Console</h3>
+      <div class="actions">
+        <button data-action="survey">🩺 XABCDE</button>
+        <button data-action="oxygen">🫁 Oxygen</button>
+        <button data-action="iv">💉 IV Access</button>
+        <button data-action="labs">🧪 Blood Tests</button>
+        <button data-action="ecg">❤️ ECG</button>
+        <button data-action="meds">💊 Medications</button>
+        <button data-action="cart">🧰 Crash Cart</button>
+        <button data-action="help">📞 Call Team</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Clinical Timeline</h3>
+      <div class="timeline" id="timeline"></div>
+    </section>
+  </aside>
+</div>
+
+<div class="modal" id="modal">
+  <div class="dialog" role="dialog" aria-modal="true"
+       aria-labelledby="dialogTitle">
+    <h2 id="dialogTitle"></h2>
+    <p id="dialogBody"></p>
+    <div class="dialog-actions">
+      <button class="primary" id="closeModal">Continue</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  ER SIM · Educational Simulation Prototype · Fictional Patients
+</footer>
+
+<script>
+const CASES = {
+  sepsis: {
+    name:"Patient A",
+    age:"67-year-old female",
+    complaint:"Fever, confusion, hypotension",
+    hr:132,bp:"82/48",spo2:91,rr:30,
+    history:"Fever for 3 days with progressive weakness and confusion.",
+    assessment:"Airway: patent.\nBreathing: tachypnoea.\nCirculation: hypotension and tachycardia.\nDisability: confusion.\nExposure: febrile.",
+    exam:{
+      head:"Confused. Airway patent. Formal neurological assessment pending.",
+      chest:"Tachypnoeic. Focused respiratory examination required.",
+      abdomen:"Abdominal examination requested. Detailed findings pending.",
+      limbs:"Peripheral perfusion assessment requested."
+    }
+  },
+  acs: {
+    name:"Patient B",
+    age:"56-year-old male",
+    complaint:"Acute chest pain and sweating",
+    hr:108,bp:"148/92",spo2:96,rr:22,
+    history:"Central chest pain for 45 minutes with diaphoresis.",
+    assessment:"Airway: patent.\nBreathing: spontaneous.\nCirculation: tachycardia.\nDisability: alert.\nExposure: diaphoresis.",
+    exam:{
+      head:"Patient is alert and oriented.",
+      chest:"Patient reports central chest discomfort.",
+      abdomen:"Detailed abdominal findings not yet available.",
+      limbs:"Peripheral examination not yet documented."
+    }
+  },
+  asthma: {
+    name:"Patient C",
+    age:"24-year-old female",
+    complaint:"Severe shortness of breath",
+    hr:126,bp:"132/78",spo2:88,rr:34,
+    history:"Acute breathlessness, wheezing and difficulty speaking.",
+    assessment:"Airway: patent.\nBreathing: respiratory distress and hypoxaemia.\nCirculation: tachycardia.\nDisability: alert.\nExposure: no findings supplied.",
+    exam:{
+      head:"Patient is conscious, with difficulty speaking.",
+      chest:"Wheezing and increased work of breathing.",
+      abdomen:"Focused abdominal assessment not yet available.",
+      limbs:"Peripheral examination not yet documented."
+    }
+  }
+};
+
+const $=id=>document.getElementById(id);
+let selected="sepsis";
+let elapsed=0,paused=false,ended=false;
+let tab="history";
+let completed=new Set();
+let investigations=[];
+let treatments=[];
+let events=[];
+
+function timeLabel(s){
+  return String(Math.floor(s/60)).padStart(2,"0")
+  +":"+String(s%60).padStart(2,"0");
+}
+
+function logEvent(message){
+  events.unshift({time:timeLabel(elapsed),message});
+  renderTimeline();
+}
+
+function renderTimeline(){
+  $("timeline").replaceChildren();
+  events.forEach(item=>{
+    const div=document.createElement("div");
+    div.className="event";
+    const small=document.createElement("small");
+    small.textContent=item.time;
+    const description=document.createElement("div");
+    description.textContent=item.message;
+    div.append(small,description);
+    $("timeline").append(div);
+  });
+}
+
+function showModal(title,message){
+  $("dialogTitle").textContent=title;
+  $("dialogBody").textContent=message;
+  $("modal").classList.add("open");
+}
+
+function closeModal(){
+  $("modal").classList.remove("open");
+}
+
+function renderContent(){
+  const data=CASES[selected];
+  let result="";
+  if(tab==="history")result=data.history;
+  if(tab==="assessment"){
+    result=completed.has("survey")?
+      data.assessment:"Perform XABCDE to reveal findings.";
+  }
+  if(tab==="investigations"){
+    result=investigations.length?
+      "Requested investigations:\n"+investigations.join("\n")+
+      "\n\nResults are not yet configured.":
+      "No investigations requested.";
+  }
+  if(tab==="treatment"){
+    result=treatments.length?
+      "Recorded actions:\n"+treatments.join("\n")+
+      "\n\nClinical responses are not yet configured.":
+      "No treatments recorded.";
+  }
+  $("output").textContent=result;
+  document.querySelectorAll("[data-tab]").forEach(btn=>{
+    btn.classList.toggle("active",btn.dataset.tab===tab);
+  });
+}
+
+function render(){
+  const c=CASES[selected];
+  $("patientName").textContent=c.name;
+  $("patientAge").textContent=c.age;
+  $("complaint").textContent=c.complaint;
+  ["hr","bp","spo2","rr"].forEach(k=>{
+    $(k).textContent=c[k];
+  });
+  $("timer").textContent=timeLabel(elapsed);
+  $("progress").textContent=completed.size+" / 8";
+  $("pauseBtn").textContent=paused?"Resume":"Pause";
+  document.querySelectorAll("[data-action],.hotspot").forEach(el=>{
+    if(el.tagName==="BUTTON")el.disabled=ended||paused;
+    else el.style.pointerEvents=ended||paused?"none":"auto";
+  });
+  renderContent();
+  renderTimeline();
+}
+
+function reset(){
+  selected=$("caseSelect").value;
+  elapsed=0;paused=false;ended=false;
+  tab="history";
+  completed=new Set();
+  investigations=[];
+  treatments=[];
+  events=[];
+  logEvent("Patient arrived in Resus Bay 01.");
+  render();
+}
+
+function clinicalAction(action){
+  if(ended||paused)return;
+
+  const messages={
+    survey:"XABCDE assessment performed.",
+    oxygen:"Oxygen support requested.",
+    iv:"IV access requested.",
+    labs:"Blood investigations requested.",
+    ecg:"12-lead ECG requested.",
+    meds:"Medication console opened.",
+    cart:"Crash cart accessed.",
+    help:"Emergency team assistance requested."
+  };
+
+  completed.add(action);
+  logEvent(messages[action]);
+
+  if(action==="survey"){
+    tab="assessment";
+    showModal("Primary Survey",CASES[selected].assessment);
+  }
+  else if(action==="labs"||action==="ecg"){
+    const name=action==="labs"?"Blood investigations":"12-lead ECG";
+    if(!investigations.includes(name))investigations.push(name);
+    tab="investigations";
+    showModal("Investigation Requested",
+      name+" has been recorded.\nResults will be supplied by the case engine.");
+  }
+  else if(action==="cart"){
+    showModal("Crash Cart",
+      "Crash cart opened.\n\nDefibrillator\nAirway equipment\nEmergency medications\nIV and resuscitation supplies\n\nDetailed interactive cart integration is planned.");
+  }
+  else if(action==="meds"){
+    tab="treatment";
+    showModal("Medication Console",
+      "Medication selection, dose, route and administration confirmation will be added with the validated case engine.");
+  }
+  else {
+    if(["oxygen","iv","help"].includes(action)){
+      const name=messages[action];
+      if(!treatments.includes(name))treatments.push(name);
+    }
+    if(action==="oxygen"||action==="iv")tab="treatment";
+    showModal("Action Recorded",
+      messages[action]+
+      "\n\nPhysiological effects are not simulated in this UI prototype.");
+  }
+  render();
+}
+
+document.querySelectorAll("[data-action]").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    clinicalAction(btn.dataset.action);
+  });
+});
+
+document.querySelectorAll("[data-tab]").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    tab=btn.dataset.tab;
+    renderContent();
+  });
+});
+
+document.querySelectorAll("[data-body]").forEach(part=>{
+  part.addEventListener("click",()=>{
+    if(ended||paused)return;
+    const region=part.dataset.body;
+    const finding=CASES[selected].exam[region];
+    logEvent("Examined "+region+".");
+    showModal("Patient Examination — "+region.toUpperCase(),finding);
+  });
+});
+
+$("caseSelect").addEventListener("change",reset);
+$("restartBtn").addEventListener("click",reset);
+$("closeModal").addEventListener("click",closeModal);
+
+$("pauseBtn").addEventListener("click",()=>{
+  if(ended)return;
+  paused=!paused;
+  logEvent(paused?"Simulation paused.":"Simulation resumed.");
+  render();
+});
+
+$("endBtn").addEventListener("click",()=>{
+  if(ended)return;
+  ended=true;
+  paused=true;
+  logEvent("Case ended. Detailed debrief is not yet configured.");
+  showModal("Simulation Completed",
+    "Unique clinical actions recorded: "+completed.size+
+    "\n\nA validated scoring and debrief engine will be integrated later.");
+  render();
+});
+
+setInterval(()=>{
+  if(!paused&&!ended){
+    elapsed++;
+    $("timer").textContent=timeLabel(elapsed);
+  }
+},1000);
+
+reset();
+</script>
+</body>
+</html>
