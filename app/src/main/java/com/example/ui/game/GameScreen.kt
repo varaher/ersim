@@ -38,6 +38,8 @@ import com.example.engine.GameRules
 import com.example.engine.LogEntry
 import com.example.engine.LogKind
 import com.example.engine.VitalAlarm
+import com.example.ui.app.GameTutorialDialog
+import com.example.ui.app.HowToPlayScreen
 import com.example.ui.theme.*
 
 // ============================================================================
@@ -62,9 +64,16 @@ private val REGION_LABELS = linkedMapOf(
 fun GameScreen(
     vm: GameViewModel,
     onExit: () -> Unit,
-    onFinished: (caseId: String, stars: Int) -> Unit
+    onFinished: (caseId: String, stars: Int) -> Unit,
+    showTutorial: Boolean = false,
+    onTutorialSeen: () -> Unit = {}
 ) {
     val state by vm.state.collectAsState()
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+    val tutorialOpen = showTutorial && state.debrief == null
+    // Clock waits while the guide or the tutorial is on screen
+    LaunchedEffect(showHelp, tutorialOpen) { vm.setOverlayOpen(showHelp || tutorialOpen) }
+    DisposableEffect(Unit) { onDispose { vm.setOverlayOpen(false) } }
     val def = state.def
     val session = state.session
 
@@ -92,6 +101,11 @@ fun GameScreen(
             vm.markResultRecorded()
             onFinished(def.meta.caseId, GameRules.stars(debrief.scorePercent))
         }
+    }
+
+    if (showHelp) {
+        HowToPlayScreen(onBack = { showHelp = false }, startSectionId = "actions")
+        return
     }
 
     var confirmExit by remember { mutableStateOf(false) }
@@ -134,6 +148,9 @@ fun GameScreen(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp).testTag("game_clock")
                 )
             }
+            IconButton(onClick = { showHelp = true }, modifier = Modifier.testTag("game_help")) {
+                Icon(Icons.Default.HelpOutline, contentDescription = "How to play", tint = ErSimTextPrimary)
+            }
             IconButton(onClick = vm::togglePause) {
                 Icon(
                     if (state.paused) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -145,7 +162,7 @@ fun GameScreen(
         }
 
         // ---------------- monitor
-        MonitorPanel(st.vitals, st.vitals.rhythm, def.patient.ageYears < 14)
+        MonitorPanel(st.vitals, st.vitals.rhythm, def.patient.ageYears < 18, def.patient.ageYears.toDouble())
 
         // ---------------- nurse call-out
         AnimatedVisibility(visible = state.nurseMessage != null) {
@@ -212,6 +229,10 @@ fun GameScreen(
         state.feedback?.let { fb -> FeedbackBar(fb, vm::dismissFeedback) }
     }
 
+    if (tutorialOpen) {
+        GameTutorialDialog(onDone = onTutorialSeen)
+    }
+
     if (confirmExit) {
         AlertDialog(
             onDismissRequest = { confirmExit = false },
@@ -233,13 +254,13 @@ fun GameScreen(
 // ============================================================================
 
 @Composable
-private fun MonitorPanel(v: com.example.engine.SimVitals, rhythm: String, isPediatric: Boolean) {
+private fun MonitorPanel(v: com.example.engine.SimVitals, rhythm: String, isPediatric: Boolean, ageYears: Double) {
     val alarms = GameRules.alarms(v)
     val noPulse = VitalAlarm.NO_PULSE in alarms
-    val hrStyle = ClinicalSeverityEngine.assessHeartRate(v.hr, isPediatric, onDarkMonitorWell = true)
-    val bpStyle = ClinicalSeverityEngine.assessBloodPressure(v.sbp, v.dbp, isPediatric, onDarkMonitorWell = true)
+    val hrStyle = ClinicalSeverityEngine.assessHeartRate(v.hr, isPediatric, onDarkMonitorWell = true, ageYears = ageYears)
+    val bpStyle = ClinicalSeverityEngine.assessBloodPressure(v.sbp, v.dbp, isPediatric, onDarkMonitorWell = true, ageYears = ageYears)
     val spo2Style = ClinicalSeverityEngine.assessSpo2(if (noPulse) null else v.spo2, onDarkMonitorWell = true)
-    val rrStyle = ClinicalSeverityEngine.assessRespRate(v.rr, isPediatric, onDarkMonitorWell = true)
+    val rrStyle = ClinicalSeverityEngine.assessRespRate(v.rr, isPediatric, onDarkMonitorWell = true, ageYears = ageYears)
     val tempStyle = ClinicalSeverityEngine.assessTemp(v.tempC.toFloat(), onDarkMonitorWell = true)
     val hasCritical = alarms.isNotEmpty() || hrStyle.isCritical || bpStyle.isCritical || spo2Style.isCritical || rrStyle.isCritical
 
@@ -450,11 +471,14 @@ private fun TreatTab(def: CaseDefinition, s: CaseSession, onPerform: (String) ->
     LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { TabHint("Every order is checked against the patient. Think before you give.") }
         groups.forEach { (category, list) ->
+            // Red and amber stay reserved for danger/warning, so categories use the other hues.
+            // Keys match the "category" values used in case JSON.
             val catColor = when (category.uppercase()) {
-                "REPERFUSION", "RESUSCITATION" -> ErSimRed
-                "DRUG", "MEDICATION", "MEDS" -> ErSimAmber
-                "FLUID", "FLUIDS", "AIRWAY", "OXYGEN" -> ErSimSky
+                "RESUSCITATION", "PROCEDURE" -> ErSimOrange
+                "FLUIDS", "FLUID", "AIRWAY", "OXYGEN", "SUPPORT" -> ErSimSky
                 "DISPOSITION", "CONSULT", "COMMUNICATION" -> ErSimViolet
+                "FIBRINOLYTIC", "ANTIPLATELET", "ANTICOAGULANT", "ANTI-ISCHAEMIC", "ANALGESIA",
+                "ANTIARRHYTHMIC", "DRUG", "MEDICATION", "MEDS" -> ErSimRose
                 else -> ErSimMint
             }
             item(key = "h_$category") {

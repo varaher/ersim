@@ -64,6 +64,7 @@ data class CaseProgress(
 data class AppPrefsState(
     val onboardingDone: Boolean = false,
     val disclaimerAccepted: Boolean = false,
+    val seenGameTutorial: Boolean = false,
     val profile: UserProfile = UserProfile(),
     val settings: AppSettings = AppSettings(),
     val progress: CaseProgress = CaseProgress()
@@ -75,6 +76,7 @@ class AppPrefsRepository(context: Context) {
     fun load(): AppPrefsState = AppPrefsState(
         onboardingDone = sp.getBoolean(K_ONBOARD, false),
         disclaimerAccepted = sp.getBoolean(K_DISCLAIMER, false),
+        seenGameTutorial = sp.getBoolean(K_TUTORIAL, false),
         profile = UserProfile(
             displayName = sp.getString(K_NAME, "") ?: "",
             role = runCatching { LearnerRole.valueOf(sp.getString(K_ROLE, null) ?: "") }
@@ -107,6 +109,7 @@ class AppPrefsRepository(context: Context) {
         sp.edit()
             .putBoolean(K_ONBOARD, s.onboardingDone)
             .putBoolean(K_DISCLAIMER, s.disclaimerAccepted)
+            .putBoolean(K_TUTORIAL, s.seenGameTutorial)
             .putString(K_NAME, s.profile.displayName)
             .putString(K_ROLE, s.profile.role.name)
             .putString(K_INSTITUTION, s.profile.institution)
@@ -130,6 +133,7 @@ class AppPrefsRepository(context: Context) {
     private companion object {
         const val K_ONBOARD = "onboarding_done"
         const val K_DISCLAIMER = "disclaimer_accepted"
+        const val K_TUTORIAL = "seen_game_tutorial"
         const val K_NAME = "profile_name"
         const val K_ROLE = "profile_role"
         const val K_INSTITUTION = "profile_institution"
@@ -159,6 +163,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun completeOnboarding(profile: UserProfile) = mutate {
         it.copy(onboardingDone = true, disclaimerAccepted = true, profile = profile)
     }
+
+    fun markTutorialSeen() = mutate { it.copy(seenGameTutorial = true) }
 
     fun updateProfile(profile: UserProfile) = mutate { it.copy(profile = profile) }
 

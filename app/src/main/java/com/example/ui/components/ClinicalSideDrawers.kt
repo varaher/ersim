@@ -558,9 +558,9 @@ private fun PatientDrawerContent(
 
         item {
             val isPeds = activeCase.isPediatricOrInfant
-            val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, onDarkMonitorWell = false)
-            val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, onDarkMonitorWell = false)
-            val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, onDarkMonitorWell = false)
+            val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = false)
+            val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = false)
+            val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = false)
             val spo2Style = ClinicalSeverityEngine.assessSpo2(vitals.spo2, onDarkMonitorWell = false)
             val tempStyle = ClinicalSeverityEngine.assessTemp(vitals.tempCelsius, onDarkMonitorWell = false)
             val etco2Style = ClinicalSeverityEngine.assessEtco2(vitals.etco2, onDarkMonitorWell = false)

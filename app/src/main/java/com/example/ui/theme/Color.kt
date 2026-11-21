@@ -63,13 +63,13 @@ val ErSimLightPalette = ErSimPalette(
     surface = Color(0xFFFFFFFF),
     raisedSurface = Color(0xFFE6EFF6),
     border = Color(0xFFCBD9E6),
-    accent = Color(0xFF05825E),      // Deep emerald for >=4.5:1 on light
+    accent = Color(0xFF047857),      // Deep emerald: >=4.5:1 on white AND on raised surface
     textPrimary = Color(0xFF0E1F2F),
     textMuted = Color(0xFF4F667A),
     red = Color(0xFFD11F3E),         // High-contrast clinical crimson
-    amber = Color(0xFFB45309),       // Deep warm amber
-    sky = Color(0xFF0277BD),         // High-contrast clinical blue
-    cyan = Color(0xFF00838F),        // Deep telemetry teal-cyan
+    amber = Color(0xFFA04A06),       // Deep warm amber (>=4.5:1 on raised surface)
+    sky = Color(0xFF01699F),         // High-contrast clinical blue (>=4.5:1 on raised surface)
+    cyan = Color(0xFF00727C),        // Deep telemetry teal-cyan (>=4.5:1 on raised surface)
     violet = Color(0xFF6D28D9),      // Deep clinical indigo-violet
     rose = Color(0xFFBE185D),        // Crisp rose
     orange = Color(0xFFC2410C),      // Deep alert orange
@@ -104,6 +104,9 @@ val ErSimVitalWell: Color get() = ErSimThemeState.palette.vitalWell
 val ErSimWaveWell: Color get() = ErSimThemeState.palette.waveWell
 val ErSimOutputWell: Color get() = ErSimThemeState.palette.outputWell
 val ErSimHeaderBg: Color get() = ErSimThemeState.palette.headerBg
+
+/** Text/icon colour on a solid accent fill (buttons, selected chips): dark ink on bright dark-theme accents, white on deep light-theme accents. */
+val ErSimOnAccent: Color get() = if (ErSimThemeState.palette.isDark) Color(0xFF06151C) else Color.White
 
 // Monitor-specific bright tokens (always rendered inside dark monitor wells)
 val MonitorMint = Color(0xFF34F5B2)

@@ -49,6 +49,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private var ticker: Job? = null
     private var backgrounded = false
+    private var overlayOpen = false
 
     init {
         viewModelScope.launch {
@@ -99,6 +100,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         backgrounded = value
     }
 
+    /** Guide or tutorial on screen: the clock waits for the player. */
+    fun setOverlayOpen(value: Boolean) {
+        overlayOpen = value
+    }
+
     /** Player ends the case early: debrief on what was done so far. */
     fun endCase() {
         val st = _state.value
@@ -133,7 +139,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 delay(1000)
                 val st = _state.value
-                if (!st.paused && !backgrounded && st.debrief == null) dispatch(SimEvent.Advance(1))
+                if (!st.paused && !backgrounded && !overlayOpen && st.debrief == null) dispatch(SimEvent.Advance(1))
             }
         }
     }

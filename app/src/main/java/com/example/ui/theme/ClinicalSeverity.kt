@@ -67,11 +67,16 @@ object ClinicalSeverityEngine {
         )
     }
 
-    fun assessHeartRate(hr: Int, isPediatric: Boolean, onDarkMonitorWell: Boolean = true): ClinicalColorStyle {
-        val (critLow, low, high, critHigh) = if (isPediatric) {
-            listOf(60, 80, 145, 175)
-        } else {
-            listOf(45, 59, 101, 130)
+    fun assessHeartRate(
+        hr: Int,
+        isPediatric: Boolean,
+        onDarkMonitorWell: Boolean = true,
+        ageYears: Double? = null
+    ): ClinicalColorStyle {
+        val (critLow, low, high, critHigh) = when {
+            isPediatric && ageYears != null && ageYears < 18 -> PaedsBands.heartRate(ageYears)
+            isPediatric -> listOf(60, 80, 145, 175)
+            else -> listOf(45, 59, 101, 130)
         }
         return when {
             hr == 0 -> styleFor(ClinicalSeverity.CRITICAL, "ARREST", onDarkMonitorWell)
@@ -87,12 +92,13 @@ object ClinicalSeverityEngine {
         systolic: Int,
         diastolic: Int,
         isPediatric: Boolean,
-        onDarkMonitorWell: Boolean = true
+        onDarkMonitorWell: Boolean = true,
+        ageYears: Double? = null
     ): ClinicalColorStyle {
-        val (critLowSys, lowSys, highSys, critHighSys) = if (isPediatric) {
-            listOf(70, 80, 125, 145)
-        } else {
-            listOf(85, 95, 145, 180)
+        val (critLowSys, lowSys, highSys, critHighSys) = when {
+            isPediatric && ageYears != null && ageYears < 18 -> PaedsBands.systolic(ageYears)
+            isPediatric -> listOf(70, 80, 125, 145)
+            else -> listOf(85, 95, 145, 180)
         }
         return when {
             systolic <= 0 -> styleFor(ClinicalSeverity.CRITICAL, "NO BP", onDarkMonitorWell)
@@ -113,11 +119,16 @@ object ClinicalSeverityEngine {
         }
     }
 
-    fun assessRespRate(rr: Int, isPediatric: Boolean, onDarkMonitorWell: Boolean = true): ClinicalColorStyle {
-        val (critLow, low, high, critHigh) = if (isPediatric) {
-            listOf(12, 16, 34, 46)
-        } else {
-            listOf(8, 11, 21, 28)
+    fun assessRespRate(
+        rr: Int,
+        isPediatric: Boolean,
+        onDarkMonitorWell: Boolean = true,
+        ageYears: Double? = null
+    ): ClinicalColorStyle {
+        val (critLow, low, high, critHigh) = when {
+            isPediatric && ageYears != null && ageYears < 18 -> PaedsBands.respRate(ageYears)
+            isPediatric -> listOf(12, 16, 34, 46)
+            else -> listOf(8, 11, 21, 28)
         }
         return when {
             rr <= 0 -> styleFor(ClinicalSeverity.CRITICAL, "APNEA", onDarkMonitorWell)
@@ -148,19 +159,37 @@ object ClinicalSeverityEngine {
         }
     }
 
+    private val criticalRhythmWords = Regex("""\b(vf|vt|pvt|pea)\b""")
+
     fun assessRhythm(rhythmLabel: String): ClinicalSeverity {
         val r = rhythmLabel.lowercase()
         return when {
-            r.contains("vf") || r.contains("v-fib") || r.contains("vt") || r.contains("v-tach") ||
-                r.contains("torsades") || r.contains("asystole") || r.contains("pea") ||
+            // Whole-word abbreviations only, so "repeat" never matches "pea"
+            criticalRhythmWords.containsMatchIn(r) ||
+                r.contains("ventricular fibrillation") || r.contains("ventricular tachycardia") ||
+                r.contains("v-fib") || r.contains("v-tach") || r.contains("torsades") ||
+                r.contains("asystole") || r.contains("pulseless") || r.contains("no pulse") ||
                 r.contains("sine wave") || r.contains("complete heart block") ||
+                r.contains("third degree") || r.contains("third-degree") || r.contains("3rd degree") ||
                 r.contains("stemi") || r.contains("st elevation") || r.contains("arrest") -> ClinicalSeverity.CRITICAL
-            r.contains("tachy") || r.contains("afib") || r.contains("a-fib") ||
+            r.contains("tachy") || r.contains("afib") || r.contains("a-fib") || r.contains("atrial fibrillation") ||
                 r.contains("flutter") || r.contains("svt") || r.contains("block") -> ClinicalSeverity.HIGH
             r.contains("brady") -> ClinicalSeverity.LOW
             else -> ClinicalSeverity.NORMAL
         }
     }
+
+    /** Approximate age in years for a classic case, from its age description. */
+    fun ageYearsOf(case: com.example.data.OralBoardCase): Double =
+        when (com.example.data.PatientCharacterRegistry.ageBandFor(case)) {
+            com.example.data.PatientAgeBand.NEONATE -> 0.04
+            com.example.data.PatientAgeBand.INFANT -> 0.5
+            com.example.data.PatientAgeBand.PRESCHOOL_CHILD -> 3.0
+            com.example.data.PatientAgeBand.SCHOOL_CHILD -> 8.0
+            com.example.data.PatientAgeBand.ADOLESCENT -> 14.0
+            com.example.data.PatientAgeBand.ADULT -> 40.0
+            com.example.data.PatientAgeBand.OLDER_ADULT -> 70.0
+        }
 
     fun labStyle(flag: LabFlag, onDarkMonitorWell: Boolean = false): ClinicalColorStyle {
         return when (flag) {
@@ -172,18 +201,18 @@ object ClinicalSeverityEngine {
     }
 
     /** Returns concise labels of all currently critical vitals for the top alert strip. */
-    fun criticalVitalTags(vitals: VitalSigns, isPediatric: Boolean): List<String> {
+    fun criticalVitalTags(vitals: VitalSigns, isPediatric: Boolean, ageYears: Double? = null): List<String> {
         val tags = mutableListOf<String>()
-        if (assessBloodPressure(vitals.systolic, vitals.diastolic, isPediatric).isCritical) {
+        if (assessBloodPressure(vitals.systolic, vitals.diastolic, isPediatric, ageYears = ageYears).isCritical) {
             tags.add("BP ${vitals.bpDisplay}")
         }
-        if (assessHeartRate(vitals.hr, isPediatric).isCritical) {
+        if (assessHeartRate(vitals.hr, isPediatric, ageYears = ageYears).isCritical) {
             tags.add("HR ${vitals.hr}")
         }
         if (assessSpo2(vitals.spo2).isCritical) {
             tags.add("SpO₂ ${vitals.spo2?.let { "$it%" } ?: "None"}")
         }
-        if (assessRespRate(vitals.rr, isPediatric).isCritical) {
+        if (assessRespRate(vitals.rr, isPediatric, ageYears = ageYears).isCritical) {
             tags.add("RR ${vitals.rr}")
         }
         if (assessTemp(vitals.tempCelsius).isCritical) {
@@ -212,5 +241,45 @@ object ClinicalSeverityEngine {
                 c.contains("trauma") || c.contains("infect") -> ErSimAmber
             else -> ErSimMint
         }
+    }
+}
+
+/**
+ * Age-specific paediatric alarm bands: listOf(critLow, low, high, critHigh).
+ * Normal ranges follow PALS (AHA 2020) awake values; critical bradycardia is HR < 60
+ * (the CPR threshold in infants/children); hypotension is the PALS SBP limit
+ * (<60 neonate, <70 infant, <70 + 2×age 1–10 y, <90 over 10 y).
+ * Clinical reviewer to confirm before APPROVED.
+ */
+object PaedsBands {
+    private const val NEONATE_MAX_YEARS = 28.0 / 365.0
+
+    fun heartRate(age: Double): List<Int> = when {
+        age < NEONATE_MAX_YEARS -> listOf(60, 100, 205, 220)
+        age < 1 -> listOf(60, 100, 180, 220)
+        age < 3 -> listOf(60, 98, 140, 180)
+        age < 6 -> listOf(60, 80, 120, 180)
+        age < 12 -> listOf(50, 75, 118, 160)
+        else -> listOf(45, 60, 100, 140)
+    }
+
+    fun respRate(age: Double): List<Int> = when {
+        age < NEONATE_MAX_YEARS -> listOf(20, 30, 60, 70)
+        age < 1 -> listOf(20, 30, 53, 65)
+        age < 3 -> listOf(15, 22, 37, 50)
+        age < 6 -> listOf(12, 20, 28, 40)
+        age < 12 -> listOf(10, 18, 25, 35)
+        else -> listOf(8, 12, 20, 30)
+    }
+
+    fun systolic(age: Double): List<Int> {
+        val hypotension = when {
+            age < NEONATE_MAX_YEARS -> 60
+            age < 1 -> 70
+            age <= 10 -> (70 + 2 * age).toInt()
+            else -> 90
+        }
+        val (high, critHigh) = if (age < 12) 125 to 145 else 135 to 160
+        return listOf(hypotension, hypotension + 10, high, critHigh)
     }
 }

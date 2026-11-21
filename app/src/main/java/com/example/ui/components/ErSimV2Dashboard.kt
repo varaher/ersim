@@ -74,6 +74,7 @@ fun ErSimV2Screen(
     onToggleAlarmSilence: () -> Unit,
     onToggleJoystick: () -> Unit,
     onNavigateHome: (() -> Unit)? = null,
+    onOpenHelp: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedWorkspaceTab by remember { mutableStateOf(ErSimWorkspaceTab.PATIENT_OVERVIEW) }
@@ -96,7 +97,8 @@ fun ErSimV2Screen(
             onToggleAudio = onToggleAudio,
             onToggleAlarmSilence = onToggleAlarmSilence,
             onToggleJoystick = onToggleJoystick,
-            onNavigateHome = onNavigateHome
+            onNavigateHome = onNavigateHome,
+            onOpenHelp = onOpenHelp
         )
 
         // 2. ADAPTIVE PORTRAIT / LANDSCAPE BODY
@@ -271,7 +273,8 @@ private fun ErSimTopHeaderBar(
     onToggleAudio: () -> Unit,
     onToggleAlarmSilence: () -> Unit,
     onToggleJoystick: () -> Unit,
-    onNavigateHome: (() -> Unit)? = null
+    onNavigateHome: (() -> Unit)? = null,
+    onOpenHelp: (() -> Unit)? = null
 ) {
     val room = uiState.activeRoom
     val activeCase = uiState.activeCase
@@ -307,7 +310,7 @@ private fun ErSimTopHeaderBar(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                         if (onNavigateHome != null) {
                             IconButton(
                                 onClick = onNavigateHome,
@@ -333,61 +336,17 @@ private fun ErSimTopHeaderBar(
                                     }
                                 },
                                 fontSize = 22.sp,
-                                letterSpacing = 1.8.sp
+                                letterSpacing = 1.8.sp,
+                                maxLines = 1
                             )
                             Text(
                                 text = "IMMERSIVE EMERGENCY MEDICINE",
                                 color = ErSimCyan,
                                 fontSize = 10.sp,
                                 letterSpacing = 1.1.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // Bay & Scenario Indicator Chip (Category-color accented)
-                    Surface(
-                        color = caseAccent.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, caseAccent.copy(alpha = 0.55f)),
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .padding(horizontal = 8.dp)
-                            .testTag("open_20_scenarios_btn")
-                            .clickable { onOpenScenarioPicker() }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.MenuBook,
-                                contentDescription = "Select Scenario",
-                                tint = caseAccent,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = "${room.roomId} • Case #${activeCase.caseNumber}",
-                                    color = caseAccent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                                Text(
-                                    text = activeCase.scenarioCategory,
-                                    color = ErSimTextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = null,
-                                tint = caseAccent,
-                                modifier = Modifier.size(18.dp)
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -397,6 +356,15 @@ private fun ErSimTopHeaderBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        if (onOpenHelp != null) {
+                            HeaderIconPill(
+                                icon = Icons.Default.HelpOutline,
+                                contentDescription = "How to play",
+                                accent = ErSimMint,
+                                onClick = onOpenHelp,
+                                testTag = "sim_help_btn"
+                            )
+                        }
                         HeaderIconPill(
                             icon = Icons.Default.AdminPanelSettings,
                             contentDescription = "Instructor Question Engine & Admin Room",
@@ -417,6 +385,52 @@ private fun ErSimTopHeaderBar(
                             accent = if (uiState.isAudioEnabled) ErSimMint else ErSimTextMuted,
                             onClick = onToggleAudio,
                             testTag = "hud_audio_toggle_btn"
+                        )
+                    }
+                }
+
+                // Bay & Scenario chip on its own full-width row (prevents text squeezing on phones)
+                Surface(
+                    color = caseAccent.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, caseAccent.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("open_20_scenarios_btn")
+                        .clickable { onOpenScenarioPicker() }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MenuBook,
+                            contentDescription = "Select Scenario",
+                            tint = caseAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${room.roomId} • Case #${activeCase.caseNumber}",
+                                color = caseAccent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = activeCase.scenarioCategory,
+                                color = ErSimTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Icon(
+                            Icons.Default.ArrowDropDown,
+                            contentDescription = null,
+                            tint = caseAccent,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -610,14 +624,14 @@ fun ContinuousPatientMonitoringCard(
     val q0Unlocked = room.unlockedGates.contains(QuestionGateType.Q0_GATE)
 
     // Live clinical severity assessment for every parameter
-    val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, onDarkMonitorWell = true)
-    val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, onDarkMonitorWell = true)
+    val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = true)
+    val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = true)
     val spo2Style = ClinicalSeverityEngine.assessSpo2(vitals.spo2, onDarkMonitorWell = true)
-    val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, onDarkMonitorWell = true)
+    val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = true)
     val tempStyle = ClinicalSeverityEngine.assessTemp(vitals.tempCelsius, onDarkMonitorWell = true)
     val etco2Style = ClinicalSeverityEngine.assessEtco2(vitals.etco2, onDarkMonitorWell = true)
     val rhythmSeverity = ClinicalSeverityEngine.assessRhythm(vitals.rhythmLabel)
-    val criticalTags = if (q0Unlocked) ClinicalSeverityEngine.criticalVitalTags(vitals, isPeds) else emptyList()
+    val criticalTags = if (q0Unlocked) ClinicalSeverityEngine.criticalVitalTags(vitals, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase)) else emptyList()
 
     // Subtle critical pulse animation for life-threatening vitals
     val pulseTransition = rememberInfiniteTransition(label = "critical_vital_pulse")

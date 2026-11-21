@@ -83,8 +83,13 @@ fun ErSimAppShell(
 ) {
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
+    var showGuide by rememberSaveable { mutableStateOf(false) }
     var caseFilter by rememberSaveable { mutableStateOf(CaseFilter.ALL) }
 
+    if (showGuide) {
+        HowToPlayScreen(onBack = { showGuide = false })
+        return
+    }
     if (showAbout) {
         androidx.activity.compose.BackHandler { showAbout = false }
         AboutScreen(onBack = { showAbout = false })
@@ -105,7 +110,7 @@ fun ErSimAppShell(
                         icon = { Icon(t.icon, contentDescription = t.label) },
                         label = { Text(t.label, fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ErSimBg,
+                            selectedIconColor = ErSimOnAccent,
                             selectedTextColor = ErSimMint,
                             indicatorColor = ErSimMint,
                             unselectedIconColor = ErSimTextMuted,
@@ -130,6 +135,7 @@ fun ErSimAppShell(
                     onBrowseCases = { filter -> caseFilter = filter; tab = AppTab.CASES },
                     onOpenProfile = { tab = AppTab.PROFILE },
                     onOpenAbout = { showAbout = true },
+                    onOpenGuide = { showGuide = true },
                     interactiveCases = interactiveCases,
                     onPlayInteractive = onPlayInteractive
                 )
@@ -150,7 +156,8 @@ fun ErSimAppShell(
                     onResetProgress = onResetProgress,
                     onResetEverything = onResetEverything,
                     onLogOut = onLogOut,
-                    onOpenAbout = { showAbout = true }
+                    onOpenAbout = { showAbout = true },
+                    onOpenGuide = { showGuide = true }
                 )
             }
         }
@@ -169,6 +176,7 @@ private fun HomeScreen(
     onBrowseCases: (CaseFilter) -> Unit,
     onOpenProfile: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenGuide: () -> Unit,
     interactiveCases: List<InteractiveCaseSummary>,
     onPlayInteractive: (String) -> Unit
 ) {
@@ -238,6 +246,36 @@ private fun HomeScreen(
             }
         }
 
+        // How to play: prominent until the player has finished a case
+        Surface(
+            color = if (progress.sessionsCount == 0) ErSimMint.copy(alpha = 0.12f) else ErSimSurface,
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, if (progress.sessionsCount == 0) ErSimMint else ErSimBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenGuide() }
+                .testTag("home_how_to_play")
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
+                IconBadge(Icons.Default.HelpOutline, accent = ErSimMint)
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (progress.sessionsCount == 0) "New here? How to play" else "How to play",
+                        color = ErSimTextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "The clock, the monitor, your actions, rules and scoring",
+                        color = ErSimTextMuted,
+                        fontSize = 12.sp
+                    )
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ErSimTextMuted)
+            }
+        }
+
         if (interactiveCases.isNotEmpty()) {
             AppCard(borderColor = ErSimAmber) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -251,7 +289,7 @@ private fun HomeScreen(
                     )
                     Text(
                         "NEW",
-                        color = ErSimBg,
+                        color = ErSimOnAccent,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.ExtraBold,
                         modifier = Modifier
@@ -444,7 +482,7 @@ private fun CaseLibraryScreen(
                         containerColor = ErSimSurface,
                         labelColor = ErSimTextMuted,
                         selectedContainerColor = ErSimMint,
-                        selectedLabelColor = ErSimBg
+                        selectedLabelColor = ErSimOnAccent
                     )
                 )
             }
@@ -661,7 +699,8 @@ private fun SettingsScreen(
     onResetProgress: () -> Unit,
     onResetEverything: () -> Unit,
     onLogOut: () -> Unit,
-    onOpenAbout: () -> Unit
+    onOpenAbout: () -> Unit,
+    onOpenGuide: () -> Unit
 ) {
     var confirmLogOut by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
@@ -705,6 +744,7 @@ private fun SettingsScreen(
         ActionRow(Icons.Default.DeleteForever, "Reset app", "Clears profile, settings and progress", danger = true) { confirm = "all" }
 
         SectionLabel("INFORMATION")
+        ActionRow(Icons.Default.HelpOutline, "How to play", "Clock, monitor, actions, rules and scoring", iconTint = ErSimMint) { onOpenGuide() }
         ActionRow(Icons.Default.Info, "About ER SIM", "Version, purpose and disclaimer", iconTint = ErSimCyan) { onOpenAbout() }
 
         SectionLabel("ACCOUNT")
@@ -876,7 +916,7 @@ fun OnboardingScreen(onDone: (UserProfile) -> Unit) {
                 Checkbox(
                     checked = accepted,
                     onCheckedChange = { accepted = it },
-                    colors = CheckboxDefaults.colors(checkedColor = ErSimMint, checkmarkColor = ErSimBg, uncheckedColor = ErSimTextMuted)
+                    colors = CheckboxDefaults.colors(checkedColor = ErSimMint, checkmarkColor = ErSimOnAccent, uncheckedColor = ErSimTextMuted)
                 )
                 Text(
                     "I understand ER SIM is for education only and not for real patient care decisions.",
@@ -1021,7 +1061,7 @@ private fun PrimaryButton(text: String, icon: ImageVector, enabled: Boolean = tr
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = ErSimMint,
-            contentColor = ErSimBg,
+            contentColor = ErSimOnAccent,
             disabledContainerColor = ErSimRaisedSurface,
             disabledContentColor = ErSimTextMuted
         ),
@@ -1118,7 +1158,7 @@ private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit
                 }
                 Surface(
                     color = if (isOn) modeAccent else Color.Transparent,
-                    contentColor = if (isOn) Color(0xFF06151C) else ErSimTextPrimary,
+                    contentColor = if (isOn) ErSimOnAccent else ErSimTextPrimary,
                     shape = RoundedCornerShape(9.dp),
                     modifier = Modifier
                         .weight(1f)

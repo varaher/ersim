@@ -131,7 +131,9 @@ fun ErSimRoot(
                 gameViewModel.exitGame()
                 inGame = false
             },
-            onFinished = appViewModel::recordInteractiveResult
+            onFinished = appViewModel::recordInteractiveResult,
+            showTutorial = !appState.seenGameTutorial,
+            onTutorialSeen = appViewModel::markTutorialSeen
         )
 
         inSimulation -> ErResusSimulationApp(
@@ -190,6 +192,11 @@ fun ErResusSimulationApp(
     simViewModel: SimViewModel = viewModel(),
     onExitToHome: () -> Unit = {}
 ) {
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+    if (showHelp) {
+        com.example.ui.app.HowToPlayScreen(onBack = { showHelp = false }, startSectionId = "classic")
+        return
+    }
     val uiState by simViewModel.uiState.collectAsStateWithLifecycle()
     val room = uiState.activeRoom
     val activeCase = uiState.activeCase
@@ -261,6 +268,7 @@ fun ErResusSimulationApp(
             onToggleAlarmSilence = simViewModel::toggleAlarmSilence,
             onToggleJoystick = simViewModel::toggleJoystickVisibility,
             onNavigateHome = onExitToHome,
+            onOpenHelp = { showHelp = true },
             modifier = Modifier.fillMaxSize()
         )
 

@@ -356,13 +356,13 @@ private fun TabletPatientAndVitalsTab(
         // 2. Initial & Live Patient Vitals Grid (Dynamically Color-Coded by Clinical Severity)
         item {
             val isPeds = activeCase.isPediatricOrInfant
-            val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, onDarkMonitorWell = true)
-            val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, onDarkMonitorWell = true)
-            val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, onDarkMonitorWell = true)
+            val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = true)
+            val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = true)
+            val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase), onDarkMonitorWell = true)
             val spo2Style = ClinicalSeverityEngine.assessSpo2(vitals.spo2, onDarkMonitorWell = true)
             val tempStyle = ClinicalSeverityEngine.assessTemp(vitals.tempCelsius, onDarkMonitorWell = true)
             val etco2Style = ClinicalSeverityEngine.assessEtco2(vitals.etco2, onDarkMonitorWell = true)
-            val critTags = ClinicalSeverityEngine.criticalVitalTags(vitals, isPeds)
+            val critTags = ClinicalSeverityEngine.criticalVitalTags(vitals, isPeds, ageYears = ClinicalSeverityEngine.ageYearsOf(activeCase))
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0A1727)),
