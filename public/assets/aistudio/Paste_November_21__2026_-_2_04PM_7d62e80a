@@ -1,0 +1,1396 @@
+1. NEW FILE: app/src/main/java/com/example/engine/MiniJson.kt
+kotlin
+package com.example.engine
+
+/**
+ * Minimal strict JSON parser (RFC 8259 subset sufficient for case files).
+ * Returns Map<String, Any?>, List<Any?>, String, Double, Boolean or null.
+ * Pure Kotlin so case files parse identically on Android and in JVM unit tests.
+ */
+object MiniJson {
+
+    class JsonParseException(message: String) : RuntimeException(message)
+
+    fun parse(text: String): Any? {
+        val p = Parser(text)
+        p.skipWs()
+        val v = p.readValue()
+        p.skipWs()
+        if (!p.atEnd()) throw p.error("Unexpected trailing content")
+        return v
+    }
+
+    private class Parser(val s: String) {
+        var i = 0
+
+        fun atEnd() = i >= s.length
+        fun error(msg: String): JsonParseException {
+            val line = s.substring(0, i.coerceAtMost(s.length)).count { it == '\n' } + 1
+            return JsonParseException("$msg at line $line (offset $i)")
+        }
+
+        fun skipWs() {
+            while (i < s.length && s[i].isWhitespace()) i++
+        }
+
+        fun readValue(): Any? {
+            skipWs()
+            if (atEnd()) throw error("Unexpected end of input")
+            return when (val c = s[i]) {
+                '{' -> readObject()
+                '[' -> readArray()
+                '"' -> readString()
+                't' -> readLiteral("true", true)
+                'f' -> readLiteral("false", false)
+                'n' -> readLiteral("null", null)
+                else -> if (c == '-' || c.isDigit()) readNumber() else throw error("Unexpected character '$c'")
+            }
+        }
+
+        fun readLiteral(word: String, value: Any?): Any? {
+            if (!s.startsWith(word, i)) throw error("Expected $word")
+            i += word.length
+            return value
+        }
+
+        fun readNumber(): Double {
+            val start = i
+            if (s[i] == '-') i++
+            while (i < s.length && (s[i].isDigit() || s[i] in ".eE+-")) i++
+            return s.substring(start, i).toDoubleOrNull() ?: throw error("Bad number")
+        }
+
+        fun readString(): String {
+            i++ // opening quote
+            val sb = StringBuilder()
+            while (true) {
+                if (atEnd()) throw error("Unterminated string")
+                val c = s[i++]
+                when (c) {
+                    '"' -> return sb.toString()
+                    '\\' -> {
+                        if (atEnd()) throw error("Bad escape")
+                        when (val e = s[i++]) {
+                            '"' -> sb.append('"'); '\\' -> sb.append('\\'); '/' -> sb.append('/')
+                            'b' -> sb.append('\b'); 'f' -> sb.append('\u000C')
+                            'n' -> sb.append('\n'); 'r' -> sb.append('\r'); 't' -> sb.append('\t')
+                            'u' -> {
+                                if (i + 4 > s.length) throw error("Bad unicode escape")
+                                sb.append(s.substring(i, i + 4).toInt(16).toChar()); i += 4
+                            }
+                            else -> throw error("Bad escape \\$e")
+                        }
+                    }
+                    else -> sb.append(c)
+                }
+            }
+        }
+
+        fun readArray(): List<Any?> {
+            i++
+            val out = ArrayList<Any?>()
+            skipWs()
+            if (s.getOrNull(i) == ']') { i++; return out }
+            while (true) {
+                out.add(readValue())
+                skipWs()
+                when (s.getOrNull(i)) {
+                    ',' -> i++
+                    ']' -> { i++; return out }
+                    else -> throw error("Expected , or ]")
+                }
+            }
+        }
+
+        fun readObject(): Map<String, Any?> {
+            i++
+            val out = LinkedHashMap<String, Any?>()
+            skipWs()
+            if (s.getOrNull(i) == '}') { i++; return out }
+            while (true) {
+                skipWs()
+                if (s.getOrNull(i) != '"') throw error("Expected key")
+                val key = readString()
+                skipWs()
+                if (s.getOrNull(i) != ':') throw error("Expected :")
+                i++
+                if (out.containsKey(key)) throw error("Duplicate key \"$key\"")
+                out[key] = readValue()
+                skipWs()
+                when (s.getOrNull(i)) {
+                    ',' -> i++
+                    '}' -> { i++; return out }
+                    else -> throw error("Expected , or }")
+                }
+            }
+        }
+    }
+}
+2. NEW FILE: app/src/main/java/com/example/engine/CaseModel.kt
+kotlin
+package com.example.engine
+
+// ============================================================================
+// ER SIM CASE ENGINE V1 — CASE FORMAT
+// A case is authored data (assets/cases/*.json). Clinical truth lives here,
+// never in UI or AI dialogue. Pure Kotlin: no Android imports.
+// ============================================================================
+
+data class CaseMeta(
+    val caseId: String,
+    val version: Int,
+    val title: String,
+    val category: String,
+    val difficulty: String,
+    val learnerLevel: String,
+    val estimatedMinutes: Int,
+    val reviewStatus: String,          // DRAFT | IN_REVIEW | APPROVED
+    val authors: List<String>,
+    val reviewers: List<String>,
+    val guidelineBasis: String,
+    val evidenceDate: String,
+    val sourceNotes: String,           // internal provenance, never shown to learners
+    val learningObjectives: List<String>
+)
+
+data class CasePatient(
+    val name: String,
+    val ageYears: Int,
+    val sex: String,                   // MALE | FEMALE
+    val weightKg: Double,
+    val characterFamily: String,       // matches PatientCharacter.assetFamilyKey
+    val language: String,
+    val historian: String,
+    val setting: String
+)
+
+data class SimVitals(
+    val hr: Int,
+    val sbp: Int,
+    val dbp: Int,
+    val rr: Int,
+    val spo2: Int,
+    val tempC: Double,
+    val rhythm: String
+) {
+    val bpDisplay: String get() = "$sbp/$dbp"
+}
+
+data class PatientStateDef(
+    val id: String,
+    val label: String,
+    val vitals: SimVitals,
+    val appearance: String,
+    val exam: Map<String, String>,     // region key (GENERAL, HEENT, PULM, CARD, ABD, SKIN, NEURO) -> finding
+    val patientSays: String?,          // what the patient says/does on entering this state
+    val terminal: Boolean,
+    val outcome: String?
+)
+
+data class HistoryItem(
+    val id: String,
+    val topic: String,
+    val samplePrompts: List<String>,   // for voice/intent matching later
+    val answer: String,
+    val answeredBy: String
+)
+
+data class InvestigationDef(
+    val id: String,
+    val name: String,
+    val turnaroundSec: Int,
+    val resultsByState: Map<String, String>   // stateId -> result, "*" = default
+)
+
+data class InterventionDef(
+    val id: String,
+    val name: String,
+    val category: String,
+    val dose: String?,
+    val route: String?,
+    val repeatable: Boolean,
+    val requires: List<Condition>,            // all must hold, else REJECTED
+    val requiresMessage: String?,
+    val contraindicatedWhen: List<Condition>, // any holds -> performed, logged as HARM
+    val contraindicationReason: String?,
+    val notIndicatedWhen: List<Condition>,    // any holds -> performed, logged as NOTE
+    val notIndicatedReason: String?,
+    val feedbackByState: Map<String, String>  // stateId or "*" -> response text
+)
+
+sealed interface Trigger {
+    data class OnAction(val actionId: String) : Trigger
+    data class AfterCaseSeconds(val seconds: Int) : Trigger
+    data class AfterSecondsInState(val seconds: Int) : Trigger
+}
+
+data class TransitionDef(
+    val id: String,
+    val from: List<String>,                   // state ids, or "*"
+    val to: String,
+    val trigger: Trigger,
+    val whenAll: List<Condition>,
+    val unlessAny: List<Condition>,
+    val message: String
+)
+
+data class CriticalActionDef(
+    val id: String,
+    val label: String,
+    val satisfiedByAny: List<String>,         // action ids, investigation ids or "ask:<historyId>"
+    val avoid: Boolean,                       // true = success means NEVER doing it
+    val deadlineSec: Int?,                    // from case start
+    val deadlineAfterAction: String?,         // deadline counts from this action instead
+    val appliesIfVisited: String?,            // only scored if this state occurred
+    val points: Int,
+    val teaching: String
+)
+
+data class DebriefDef(
+    val diagnosis: String,
+    val summary: String,
+    val disposition: String,
+    val teachingPoints: List<String>
+)
+
+data class CaseDefinition(
+    val meta: CaseMeta,
+    val patient: CasePatient,
+    val chiefComplaint: String,
+    val triageNote: String,
+    val facts: Set<String>,                   // hidden case truths used by conditions
+    val initialStateId: String,
+    val states: Map<String, PatientStateDef>,
+    val baselineExam: Map<String, String>,
+    val history: List<HistoryItem>,
+    val investigations: List<InvestigationDef>,
+    val interventions: List<InterventionDef>,
+    val transitions: List<TransitionDef>,
+    val criticalActions: List<CriticalActionDef>,
+    val debrief: DebriefDef
+) {
+    val investigationsById = investigations.associateBy { it.id }
+    val interventionsById = interventions.associateBy { it.id }
+    val historyById = history.associateBy { it.id }
+}
+
+// ============================================================================
+// CONDITIONS — tiny, explicit, testable DSL
+//   "always" | "fact:<id>" | "state:<id>" | "notState:<id>" |
+//   "done:<actionId>" | "notDone:<actionId>" | "vitals.<hr|sbp|dbp|rr|spo2><op><n>"  (op: < <= > >=)
+// ============================================================================
+
+sealed interface Condition {
+    object Always : Condition
+    data class Fact(val id: String) : Condition
+    data class InState(val id: String) : Condition
+    data class NotInState(val id: String) : Condition
+    data class Done(val actionId: String) : Condition
+    data class NotDone(val actionId: String) : Condition
+    data class VitalCompare(val field: String, val op: String, val value: Int) : Condition
+
+    companion object {
+        private val vitalRegex = Regex("""^vitals\.(hr|sbp|dbp|rr|spo2)(<=|>=|<|>)(-?\d+)$""")
+
+        fun parse(raw: String): Condition {
+            val s = raw.trim()
+            return when {
+                s == "always" -> Always
+                s.startsWith("fact:") -> Fact(s.removePrefix("fact:"))
+                s.startsWith("state:") -> InState(s.removePrefix("state:"))
+                s.startsWith("notState:") -> NotInState(s.removePrefix("notState:"))
+                s.startsWith("done:") -> Done(s.removePrefix("done:"))
+                s.startsWith("notDone:") -> NotDone(s.removePrefix("notDone:"))
+                else -> vitalRegex.matchEntire(s)?.let {
+                    VitalCompare(it.groupValues[1], it.groupValues[2], it.groupValues[3].toInt())
+                } ?: throw CaseFormatException("Unknown condition \"$raw\"")
+            }
+        }
+    }
+}
+
+class CaseFormatException(message: String) : RuntimeException(message)
+
+// ============================================================================
+// PARSER + VALIDATOR
+// ============================================================================
+
+object CaseParser {
+
+    val EXAM_REGIONS = setOf("GENERAL", "HEENT", "PULM", "CARD", "ABD", "SKIN", "NEURO")
+
+    fun parse(json: String): CaseDefinition {
+        @Suppress("UNCHECKED_CAST")
+        val root = MiniJson.parse(json) as? Map<String, Any?> ?: throw CaseFormatException("Root must be an object")
+        val def = build(root)
+        validate(def)
+        return def
+    }
+
+    private fun build(r: Map<String, Any?>): CaseDefinition {
+        val m = r.obj("meta")
+        val p = r.obj("patient")
+        val pres = r.obj("presentation")
+        val d = r.obj("debrief")
+        return CaseDefinition(
+            meta = CaseMeta(
+                caseId = m.str("caseId"), version = m.int("version"), title = m.str("title"),
+                category = m.str("category"), difficulty = m.str("difficulty"),
+                learnerLevel = m.str("learnerLevel"), estimatedMinutes = m.int("estimatedMinutes"),
+                reviewStatus = m.str("reviewStatus"), authors = m.strList("authors"),
+                reviewers = m.strList("reviewers"), guidelineBasis = m.str("guidelineBasis"),
+                evidenceDate = m.str("evidenceDate"), sourceNotes = m.str("sourceNotes"),
+                learningObjectives = m.strList("learningObjectives")
+            ),
+            patient = CasePatient(
+                name = p.str("name"), ageYears = p.int("ageYears"), sex = p.str("sex"),
+                weightKg = p.dbl("weightKg"), characterFamily = p.str("characterFamily"),
+                language = p.str("language"), historian = p.str("historian"), setting = p.str("setting")
+            ),
+            chiefComplaint = pres.str("chiefComplaint"),
+            triageNote = pres.str("triageNote"),
+            facts = r.strList("facts").toSet(),
+            initialStateId = r.str("initialState"),
+            states = r.objList("states").map { s ->
+                val v = s.obj("vitals")
+                PatientStateDef(
+                    id = s.str("id"), label = s.str("label"),
+                    vitals = SimVitals(v.int("hr"), v.int("sbp"), v.int("dbp"), v.int("rr"), v.int("spo2"), v.dbl("tempC"), v.str("rhythm")),
+                    appearance = s.str("appearance"),
+                    exam = s.strMapOpt("exam"),
+                    patientSays = s.strOpt("patientSays"),
+                    terminal = s.boolOpt("terminal") ?: false,
+                    outcome = s.strOpt("outcome")
+                )
+            }.associateBy { it.id },
+            baselineExam = r.strMapOpt("baselineExam"),
+            history = r.objList("history").map { h ->
+                HistoryItem(h.str("id"), h.str("topic"), h.strList("samplePrompts"), h.str("answer"), h.strOpt("answeredBy") ?: "patient")
+            },
+            investigations = r.objList("investigations").map { iv ->
+                InvestigationDef(iv.str("id"), iv.str("name"), iv.int("turnaroundSec"), iv.strMapOpt("resultsByState"))
+            },
+            interventions = r.objList("interventions").map { a ->
+                InterventionDef(
+                    id = a.str("id"), name = a.str("name"), category = a.str("category"),
+                    dose = a.strOpt("dose"), route = a.strOpt("route"),
+                    repeatable = a.boolOpt("repeatable") ?: false,
+                    requires = a.condList("requires"), requiresMessage = a.strOpt("requiresMessage"),
+                    contraindicatedWhen = a.condList("contraindicatedWhen"),
+                    contraindicationReason = a.strOpt("contraindicationReason"),
+                    notIndicatedWhen = a.condList("notIndicatedWhen"),
+                    notIndicatedReason = a.strOpt("notIndicatedReason"),
+                    feedbackByState = a.strMapOpt("feedbackByState")
+                )
+            },
+            transitions = r.objList("transitions").map { t ->
+                val trig = t.obj("trigger")
+                val trigger = when {
+                    trig.containsKey("onAction") -> Trigger.OnAction(trig.str("onAction"))
+                    trig.containsKey("afterCaseSeconds") -> Trigger.AfterCaseSeconds(trig.int("afterCaseSeconds"))
+                    trig.containsKey("afterSecondsInState") -> Trigger.AfterSecondsInState(trig.int("afterSecondsInState"))
+                    else -> throw CaseFormatException("Transition ${t.str("id")}: unknown trigger")
+                }
+                TransitionDef(t.str("id"), t.strList("from"), t.str("to"), trigger, t.condList("when"), t.condList("unless"), t.strOpt("message") ?: "")
+            },
+            criticalActions = r.objList("criticalActions").map { c ->
+                CriticalActionDef(
+                    id = c.str("id"), label = c.str("label"), satisfiedByAny = c.strList("satisfiedBy"),
+                    avoid = c.boolOpt("avoid") ?: false, deadlineSec = c.intOpt("deadlineSec"),
+                    deadlineAfterAction = c.strOpt("deadlineAfterAction"),
+                    appliesIfVisited = c.strOpt("appliesIfVisited"),
+                    points = c.int("points"), teaching = c.str("teaching")
+                )
+            },
+            debrief = DebriefDef(d.str("diagnosis"), d.str("summary"), d.str("disposition"), d.strList("teachingPoints"))
+        )
+    }
+
+    /** Referential integrity: every id a case points to must exist. Fails loudly at load time. */
+    fun validate(def: CaseDefinition) {
+        val errors = mutableListOf<String>()
+        val stateIds = def.states.keys
+        val actionIds = def.interventions.map { it.id } + def.investigations.map { it.id }
+        val historyIds = def.history.map { it.id }.toSet()
+        val dupes = (actionIds + historyIds).groupBy { it }.filter { it.value.size > 1 }.keys
+        if (dupes.isNotEmpty()) errors += "Duplicate ids: $dupes"
+        if (def.initialStateId !in stateIds) errors += "initialState '${def.initialStateId}' missing"
+
+        fun checkCond(where: String, c: Condition) {
+            when (c) {
+                is Condition.InState -> if (c.id !in stateIds) errors += "$where: unknown state ${c.id}"
+                is Condition.NotInState -> if (c.id !in stateIds) errors += "$where: unknown state ${c.id}"
+                is Condition.Done -> if (c.actionId !in actionIds) errors += "$where: unknown action ${c.actionId}"
+                is Condition.NotDone -> if (c.actionId !in actionIds) errors += "$where: unknown action ${c.actionId}"
+                is Condition.Fact -> Unit // facts may be absent on purpose (e.g. a contraindication this patient lacks)
+                else -> Unit
+            }
+        }
+        def.states.values.forEach { s ->
+            s.exam.keys.filter { it !in EXAM_REGIONS }.forEach { errors += "State ${s.id}: bad exam region $it" }
+        }
+        def.baselineExam.keys.filter { it !in EXAM_REGIONS }.forEach { errors += "baselineExam: bad region $it" }
+        EXAM_REGIONS.filter { it !in def.baselineExam }.forEach { errors += "baselineExam missing $it" }
+        def.investigations.forEach { iv ->
+            if (iv.resultsByState.isEmpty()) errors += "Investigation ${iv.id}: no results"
+            iv.resultsByState.keys.filter { it != "*" && it !in stateIds }.forEach { errors += "Investigation ${iv.id}: unknown state $it" }
+        }
+        def.interventions.forEach { a ->
+            (a.requires + a.contraindicatedWhen + a.notIndicatedWhen).forEach { checkCond("Intervention ${a.id}", it) }
+            a.feedbackByState.keys.filter { it != "*" && it !in stateIds }.forEach { errors += "Intervention ${a.id}: unknown state $it" }
+        }
+        def.transitions.forEach { t ->
+            if (t.to !in stateIds) errors += "Transition ${t.id}: unknown target ${t.to}"
+            t.from.filter { it != "*" && it !in stateIds }.forEach { errors += "Transition ${t.id}: unknown source $it" }
+            val trig = t.trigger
+            if (trig is Trigger.OnAction && trig.actionId !in actionIds) errors += "Transition ${t.id}: unknown action ${trig.actionId}"
+            (t.whenAll + t.unlessAny).forEach { checkCond("Transition ${t.id}", it) }
+        }
+        def.criticalActions.forEach { c ->
+            c.satisfiedByAny.forEach { ref ->
+                val ok = if (ref.startsWith("ask:")) ref.removePrefix("ask:") in historyIds else ref in actionIds
+                if (!ok) errors += "Critical action ${c.id}: unknown reference $ref"
+            }
+            c.deadlineAfterAction?.let { if (it !in actionIds) errors += "Critical action ${c.id}: unknown deadlineAfterAction $it" }
+            c.appliesIfVisited?.let { if (it !in stateIds) errors += "Critical action ${c.id}: unknown state $it" }
+        }
+        if (def.states.values.none { it.terminal }) errors += "No terminal state"
+        if (errors.isNotEmpty()) throw CaseFormatException("Case ${def.meta.caseId} invalid:\n- " + errors.joinToString("\n- "))
+    }
+
+    // ---- typed accessors ----
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<String, Any?>.obj(k: String) = this[k] as? Map<String, Any?> ?: throw CaseFormatException("Missing object '$k'")
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<String, Any?>.objList(k: String) = (this[k] as? List<Any?> ?: emptyList()).map {
+        it as? Map<String, Any?> ?: throw CaseFormatException("'$k' must contain objects")
+    }
+    private fun Map<String, Any?>.str(k: String) = this[k] as? String ?: throw CaseFormatException("Missing string '$k'")
+    private fun Map<String, Any?>.strOpt(k: String) = this[k] as? String
+    private fun Map<String, Any?>.dbl(k: String) = (this[k] as? Double) ?: throw CaseFormatException("Missing number '$k'")
+    private fun Map<String, Any?>.int(k: String) = dbl(k).toInt()
+    private fun Map<String, Any?>.intOpt(k: String) = (this[k] as? Double)?.toInt()
+    private fun Map<String, Any?>.boolOpt(k: String) = this[k] as? Boolean
+    private fun Map<String, Any?>.strList(k: String) = (this[k] as? List<*> ?: emptyList<Any?>()).map {
+        it as? String ?: throw CaseFormatException("'$k' must contain strings")
+    }
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<String, Any?>.strMapOpt(k: String): Map<String, String> =
+        (this[k] as? Map<String, Any?> ?: emptyMap()).mapValues { (key, v) ->
+            v as? String ?: throw CaseFormatException("'$k.$key' must be a string")
+        }
+    private fun Map<String, Any?>.condList(k: String) = strList(k).map { Condition.parse(it) }
+}
+3. NEW FILE: app/src/main/java/com/example/engine/CaseEngine.kt
+kotlin
+package com.example.engine
+
+// ============================================================================
+// ER SIM CASE ENGINE V1 — deterministic reducer
+//   session' = CaseEngine.reduce(case, session, event)
+// No clocks, no randomness, no Android: same inputs -> same outputs, so every
+// pathway is unit-testable and replayable (instructor review, voice, XR).
+// ============================================================================
+
+sealed interface SimEvent {
+    /** Advance simulated time. UI ticks this from a timer; tests jump directly. */
+    data class Advance(val seconds: Int) : SimEvent
+    data class Perform(val actionId: String) : SimEvent
+    data class Order(val investigationId: String) : SimEvent
+    data class Ask(val historyId: String) : SimEvent
+    data class Examine(val region: String) : SimEvent
+}
+
+enum class LogKind { INFO, ACTION, REJECTED, NOTE, HARM, ORDERED, RESULT, HISTORY, EXAM, STATE_CHANGE, END }
+
+data class LogEntry(val atSec: Int, val kind: LogKind, val text: String, val refId: String? = null)
+
+data class PendingResult(val investigationId: String, val orderedAtSec: Int, val readyAtSec: Int, val result: String)
+
+data class CaseSession(
+    val caseId: String,
+    val elapsedSec: Int = 0,
+    val stateId: String,
+    val stateEnteredAtSec: Int = 0,
+    val visitedStates: List<String>,
+    val performed: Map<String, Int> = emptyMap(),        // first time each action/order/ask happened ("ask:<id>" for history)
+    val performedCount: Map<String, Int> = emptyMap(),
+    val pending: List<PendingResult> = emptyList(),
+    val results: Map<String, String> = emptyMap(),       // investigationId -> latest delivered result
+    val examined: Set<String> = emptySet(),
+    val harms: List<LogEntry> = emptyList(),
+    val log: List<LogEntry> = emptyList(),
+    val ended: Boolean = false,
+    val outcome: String? = null
+)
+
+object CaseEngine {
+
+    fun start(def: CaseDefinition): CaseSession {
+        val s0 = def.states.getValue(def.initialStateId)
+        val opening = listOfNotNull(
+            LogEntry(0, LogKind.INFO, "${def.patient.name}, ${def.patient.ageYears} y. ${def.chiefComplaint}"),
+            s0.patientSays?.let { LogEntry(0, LogKind.HISTORY, it) }
+        )
+        return CaseSession(
+            caseId = def.meta.caseId,
+            stateId = s0.id,
+            visitedStates = listOf(s0.id),
+            log = opening
+        )
+    }
+
+    fun currentState(def: CaseDefinition, s: CaseSession): PatientStateDef = def.states.getValue(s.stateId)
+
+    fun reduce(def: CaseDefinition, s: CaseSession, e: SimEvent): CaseSession {
+        if (s.ended) return s
+        return when (e) {
+            is SimEvent.Advance -> advance(def, s, e.seconds)
+            is SimEvent.Perform -> perform(def, s, e.actionId)
+            is SimEvent.Order -> order(def, s, e.investigationId)
+            is SimEvent.Ask -> ask(def, s, e.historyId)
+            is SimEvent.Examine -> examine(def, s, e.region)
+        }
+    }
+
+    fun reduceAll(def: CaseDefinition, s: CaseSession, events: List<SimEvent>): CaseSession =
+        events.fold(s) { acc, ev -> reduce(def, acc, ev) }
+
+    // ---------------------------------------------------------------- time
+    private fun advance(def: CaseDefinition, start: CaseSession, seconds: Int): CaseSession {
+        var s = start
+        repeat(seconds.coerceAtLeast(0)) {
+            if (s.ended) return s
+            s = s.copy(elapsedSec = s.elapsedSec + 1)
+            s = deliverResults(def, s)
+            s = applyTimeTransitions(def, s)
+        }
+        return s
+    }
+
+    private fun deliverResults(def: CaseDefinition, s: CaseSession): CaseSession {
+        val (ready, waiting) = s.pending.partition { it.readyAtSec <= s.elapsedSec }
+        if (ready.isEmpty()) return s
+        var out = s.copy(pending = waiting)
+        ready.forEach { r ->
+            val name = def.investigationsById.getValue(r.investigationId).name
+            out = out.copy(
+                results = out.results + (r.investigationId to r.result),
+                log = out.log + LogEntry(s.elapsedSec, LogKind.RESULT, "$name: ${r.result}", r.investigationId)
+            )
+        }
+        return out
+    }
+
+    private fun applyTimeTransitions(def: CaseDefinition, s: CaseSession): CaseSession {
+        val t = def.transitions.firstOrNull { t ->
+            appliesFrom(t, s) && when (val trig = t.trigger) {
+                is Trigger.AfterCaseSeconds -> s.elapsedSec >= trig.seconds
+                is Trigger.AfterSecondsInState -> s.elapsedSec - s.stateEnteredAtSec >= trig.seconds
+                is Trigger.OnAction -> false
+            } && guardsPass(def, s, t)
+        } ?: return s
+        return enterState(def, s, t)
+    }
+
+    // ---------------------------------------------------------------- actions
+    private fun perform(def: CaseDefinition, s: CaseSession, actionId: String): CaseSession {
+        val a = def.interventionsById[actionId]
+            ?: return s.withLog(LogKind.REJECTED, "Unknown action '$actionId'", actionId)
+        if (!a.repeatable && actionId in s.performed) {
+            return s.withLog(LogKind.REJECTED, "${a.name} already done.", actionId)
+        }
+        if (!a.requires.all { holds(def, s, it) }) {
+            return s.withLog(LogKind.REJECTED, a.requiresMessage ?: "${a.name}: prerequisites not met.", actionId)
+        }
+
+        val doseText = listOfNotNull(a.dose, a.route).joinToString(" ")
+        var out = s.markDone(actionId).withLog(LogKind.ACTION, a.name + if (doseText.isNotEmpty()) " — $doseText" else "", actionId)
+
+        // Safety checks use the state BEFORE the action takes effect
+        if (a.contraindicatedWhen.any { holds(def, s, it) }) {
+            val harm = LogEntry(s.elapsedSec, LogKind.HARM, a.contraindicationReason ?: "${a.name} was contraindicated.", actionId)
+            out = out.copy(harms = out.harms + harm, log = out.log + harm)
+        } else if (a.notIndicatedWhen.any { holds(def, s, it) }) {
+            out = out.withLog(LogKind.NOTE, a.notIndicatedReason ?: "${a.name} not indicated.", actionId)
+        }
+
+        (a.feedbackByState[s.stateId] ?: a.feedbackByState["*"])?.let {
+            out = out.withLog(LogKind.INFO, it, actionId)
+        }
+
+        val t = def.transitions.firstOrNull { t ->
+            appliesFrom(t, s) && (t.trigger as? Trigger.OnAction)?.actionId == actionId && guardsPass(def, out, t)
+        }
+        return if (t != null) enterState(def, out, t) else out
+    }
+
+    private fun order(def: CaseDefinition, s: CaseSession, id: String): CaseSession {
+        val inv = def.investigationsById[id]
+            ?: return s.withLog(LogKind.REJECTED, "Unknown investigation '$id'", id)
+        if (s.pending.any { it.investigationId == id }) {
+            return s.withLog(LogKind.REJECTED, "${inv.name} already pending.", id)
+        }
+        // Result reflects the patient at the moment the test is done
+        val result = inv.resultsByState[s.stateId] ?: inv.resultsByState.getValue("*")
+        var out = s.markDone(id).withLog(LogKind.ORDERED, "${inv.name} ordered", id)
+        out = out.copy(pending = out.pending + PendingResult(id, s.elapsedSec, s.elapsedSec + inv.turnaroundSec, result))
+        out = if (inv.turnaroundSec == 0) deliverResults(def, out) else out
+        val t = def.transitions.firstOrNull { t ->
+            appliesFrom(t, s) && (t.trigger as? Trigger.OnAction)?.actionId == id && guardsPass(def, out, t)
+        }
+        return if (t != null) enterState(def, out, t) else out
+    }
+
+    private fun ask(def: CaseDefinition, s: CaseSession, id: String): CaseSession {
+        val h = def.historyById[id] ?: return s.withLog(LogKind.REJECTED, "Unknown question '$id'", id)
+        val who = if (h.answeredBy == "patient") def.patient.name.substringBefore(" ") else h.answeredBy
+        return s.markDone("ask:$id").withLog(LogKind.HISTORY, "${h.topic} — $who: \"${h.answer}\"", id)
+    }
+
+    private fun examine(def: CaseDefinition, s: CaseSession, region: String): CaseSession {
+        if (region !in CaseParser.EXAM_REGIONS) return s.withLog(LogKind.REJECTED, "Unknown exam region '$region'", region)
+        val finding = currentState(def, s).exam[region] ?: def.baselineExam.getValue(region)
+        return s.copy(examined = s.examined + region).withLog(LogKind.EXAM, "$region: $finding", region)
+    }
+
+    // ---------------------------------------------------------------- transitions
+    private fun appliesFrom(t: TransitionDef, s: CaseSession) = "*" in t.from || s.stateId in t.from
+
+    private fun guardsPass(def: CaseDefinition, s: CaseSession, t: TransitionDef) =
+        t.whenAll.all { holds(def, s, it) } && t.unlessAny.none { holds(def, s, it) }
+
+    private fun enterState(def: CaseDefinition, s: CaseSession, t: TransitionDef): CaseSession {
+        val next = def.states.getValue(t.to)
+        var out = s.copy(
+            stateId = next.id,
+            stateEnteredAtSec = s.elapsedSec,
+            visitedStates = s.visitedStates + next.id
+        )
+        out = out.withLog(LogKind.STATE_CHANGE, t.message.ifBlank { next.label }, t.id)
+        next.patientSays?.let { out = out.withLog(LogKind.HISTORY, it) }
+        if (next.terminal) {
+            out = out.copy(ended = true, outcome = next.outcome ?: next.label)
+                .withLog(LogKind.END, "Case ended: ${next.outcome ?: next.label}")
+        }
+        return out
+    }
+
+    // ---------------------------------------------------------------- conditions
+    fun holds(def: CaseDefinition, s: CaseSession, c: Condition): Boolean {
+        val v = def.states.getValue(s.stateId).vitals
+        return when (c) {
+            Condition.Always -> true
+            is Condition.Fact -> c.id in def.facts
+            is Condition.InState -> s.stateId == c.id
+            is Condition.NotInState -> s.stateId != c.id
+            is Condition.Done -> c.actionId in s.performed
+            is Condition.NotDone -> c.actionId !in s.performed
+            is Condition.VitalCompare -> {
+                val x = when (c.field) { "hr" -> v.hr; "sbp" -> v.sbp; "dbp" -> v.dbp; "rr" -> v.rr; else -> v.spo2 }
+                when (c.op) { "<" -> x < c.value; "<=" -> x <= c.value; ">" -> x > c.value; else -> x >= c.value }
+            }
+        }
+    }
+
+    private fun CaseSession.markDone(id: String) = copy(
+        performed = if (id in performed) performed else performed + (id to elapsedSec),
+        performedCount = performedCount + (id to ((performedCount[id] ?: 0) + 1))
+    )
+
+    private fun CaseSession.withLog(kind: LogKind, text: String, ref: String? = null) =
+        copy(log = log + LogEntry(elapsedSec, kind, text, ref))
+
+    // ---------------------------------------------------------------- debrief
+    fun debrief(def: CaseDefinition, s: CaseSession): DebriefReport {
+        val items = def.criticalActions
+            .filter { it.appliesIfVisited == null || it.appliesIfVisited in s.visitedStates }
+            .map { ca ->
+                val doneAt = ca.satisfiedByAny.mapNotNull { s.performed[it] }.minOrNull()
+                if (ca.avoid) {
+                    CriticalActionResult(ca, met = doneAt == null, doneAtSec = doneAt, late = false)
+                } else {
+                    val anchor = ca.deadlineAfterAction?.let { s.performed[it] } ?: 0
+                    val deadline = ca.deadlineSec?.let { anchor + it }
+                    val late = doneAt != null && deadline != null && doneAt > deadline
+                    CriticalActionResult(ca, met = doneAt != null && !late, doneAtSec = doneAt, late = late)
+                }
+            }
+        val possible = items.sumOf { it.def.points }
+        val earned = items.filter { it.met }.sumOf { it.def.points }
+        return DebriefReport(
+            caseId = def.meta.caseId,
+            outcome = s.outcome ?: "Case in progress at ${formatClock(s.elapsedSec)}",
+            diagnosis = def.debrief.diagnosis,
+            summary = def.debrief.summary,
+            disposition = def.debrief.disposition,
+            criticalActions = items,
+            harms = s.harms,
+            scorePercent = if (possible == 0) 0 else (earned * 100) / possible,
+            teachingPoints = def.debrief.teachingPoints,
+            elapsedSec = s.elapsedSec
+        )
+    }
+
+    fun formatClock(sec: Int) = "%02d:%02d".format(sec / 60, sec % 60)
+}
+
+data class CriticalActionResult(val def: CriticalActionDef, val met: Boolean, val doneAtSec: Int?, val late: Boolean)
+
+data class DebriefReport(
+    val caseId: String,
+    val outcome: String,
+    val diagnosis: String,
+    val summary: String,
+    val disposition: String,
+    val criticalActions: List<CriticalActionResult>,
+    val harms: List<LogEntry>,
+    val scorePercent: Int,
+    val teachingPoints: List<String>,
+    val elapsedSec: Int
+)
+4. NEW FILE: app/src/main/java/com/example/engine/CaseLibrary.kt
+kotlin
+package com.example.engine
+
+import android.content.Context
+
+/** Loads every case JSON from assets/cases. The only Android-specific engine file. */
+object CaseLibrary {
+    private const val DIR = "cases"
+
+    fun loadAll(context: Context): List<CaseDefinition> =
+        (context.assets.list(DIR) ?: emptyArray())
+            .filter { it.endsWith(".json") }
+            .sorted()
+            .map { name -> load(context, name) }
+
+    fun load(context: Context, fileName: String): CaseDefinition =
+        context.assets.open("$DIR/$fileName").bufferedReader(Charsets.UTF_8).use {
+            CaseParser.parse(it.readText())
+        }
+}
+5. NEW FILE: app/src/main/assets/cases/ersim_stemi_001.json
+
+In Studio, create the folder: right-click app/src/main/assets → New → Directory → cases.
+
+json
+{
+  "meta": {
+    "caseId": "ERSIM-STEMI-001",
+    "version": 1,
+    "title": "Chest pain at the taluk hospital",
+    "category": "Cardiovascular",
+    "difficulty": "Intermediate",
+    "learnerLevel": "Intern to EM resident",
+    "estimatedMinutes": 25,
+    "reviewStatus": "DRAFT",
+    "authors": ["ER SIM clinical content team (draft prepared with Claude)"],
+    "reviewers": [],
+    "guidelineBasis": "2023 ESC Guidelines for the management of acute coronary syndromes",
+    "evidenceDate": "2023-08",
+    "sourceNotes": "Original ER SIM scenario. Not derived from any textbook case. Doses and thresholds must be confirmed by the reviewing emergency physician before status APPROVED.",
+    "learningObjectives": [
+      "Obtain and interpret a 12-lead ECG within 10 minutes of arrival",
+      "Recognise inferior STEMI and look for right ventricular involvement before giving nitrates",
+      "Choose fibrinolysis when primary PCI cannot be achieved within 120 minutes",
+      "Screen for fibrinolysis contraindications and give weight-based tenecteplase promptly",
+      "Give the correct adjuncts with fibrinolysis: aspirin, clopidogrel, anticoagulant",
+      "Manage complications: nitrate-induced hypotension, complete heart block, VF",
+      "Arrange transfer for a pharmaco-invasive strategy"
+    ]
+  },
+
+  "patient": {
+    "name": "Sasidharan K.",
+    "ageYears": 56,
+    "sex": "MALE",
+    "weightKg": 68,
+    "characterFamily": "adult_male",
+    "language": "Malayalam",
+    "historian": "SELF",
+    "setting": "Taluk hospital emergency department, Kerala. No cath lab. Nearest PCI-capable centre is about 3 hours by road."
+  },
+
+  "presentation": {
+    "chiefComplaint": "Central chest pain and sweating for 2 hours",
+    "triageNote": "Auto-rickshaw driver brought by his wife. Chest pain since about 7 am, sweaty, vomited once. Triage: RED."
+  },
+
+  "facts": ["inferior_stemi", "rv_infarct"],
+
+  "initialState": "presenting",
+
+  "baselineExam": {
+    "GENERAL": "Anxious, sweating, pale. Talking in full sentences. Pain 9/10.",
+    "HEENT": "JVP raised to the angle of the jaw while sitting at 45 degrees. No pallor of conjunctivae.",
+    "PULM": "Clear breath sounds both sides. No crackles.",
+    "CARD": "Regular pulse. Normal S1 S2. No murmur, no rub.",
+    "ABD": "Soft, non-tender. No organomegaly.",
+    "SKIN": "Cool, clammy hands. Capillary refill 3 seconds. No oedema.",
+    "NEURO": "GCS 15. No focal deficit. Pupils equal and reactive."
+  },
+
+  "states": [
+    {
+      "id": "presenting",
+      "label": "Ongoing ischaemic chest pain",
+      "vitals": { "hr": 92, "sbp": 108, "dbp": 68, "rr": 20, "spo2": 96, "tempC": 36.9, "rhythm": "Sinus rhythm" },
+      "appearance": "Sweating, pale, holding his chest.",
+      "exam": {},
+      "patientSays": "Doctor, my chest feels like a heavy stone is sitting on it. I am sweating so much.",
+      "terminal": false
+    },
+    {
+      "id": "nitrate_hypotension",
+      "label": "Profound hypotension after nitrate",
+      "vitals": { "hr": 114, "sbp": 74, "dbp": 46, "rr": 24, "spo2": 95, "tempC": 36.9, "rhythm": "Sinus tachycardia" },
+      "appearance": "Grey, drowsy, about to faint.",
+      "exam": {
+        "GENERAL": "Grey and drowsy. Responds to voice. Pain unchanged.",
+        "SKIN": "Cold, mottled hands. Capillary refill 5 seconds.",
+        "NEURO": "GCS 14 (confused). No focal deficit."
+      },
+      "patientSays": "Everything is going dark... I feel like I will faint.",
+      "terminal": false
+    },
+    {
+      "id": "complete_heart_block",
+      "label": "Complete heart block",
+      "vitals": { "hr": 36, "sbp": 82, "dbp": 50, "rr": 22, "spo2": 94, "tempC": 36.9, "rhythm": "Complete heart block, broad ventricular escape" },
+      "appearance": "Pale, slow to respond, still in pain.",
+      "exam": {
+        "GENERAL": "Pale and slowed. Pain 8/10.",
+        "CARD": "Slow regular pulse about 36. Cannon waves in the neck.",
+        "NEURO": "GCS 14 (slow to answer). No focal deficit."
+      },
+      "patientSays": "I feel so weak... my head is spinning.",
+      "terminal": false
+    },
+    {
+      "id": "paced",
+      "label": "Transcutaneous pacing with capture",
+      "vitals": { "hr": 70, "sbp": 102, "dbp": 64, "rr": 20, "spo2": 95, "tempC": 36.9, "rhythm": "Paced rhythm, electrical and mechanical capture" },
+      "appearance": "More alert. Uncomfortable with the pacing.",
+      "exam": {
+        "CARD": "Femoral pulse matches paced rate of 70.",
+        "NEURO": "GCS 15."
+      },
+      "patientSays": "That is very painful in my chest wall, doctor.",
+      "terminal": false
+    },
+    {
+      "id": "vf_arrest",
+      "label": "Ventricular fibrillation arrest",
+      "vitals": { "hr": 0, "sbp": 0, "dbp": 0, "rr": 0, "spo2": 0, "tempC": 36.9, "rhythm": "Ventricular fibrillation" },
+      "appearance": "Unresponsive, not breathing normally, no pulse.",
+      "exam": {
+        "GENERAL": "Unresponsive. Agonal gasps.",
+        "CARD": "No central pulse.",
+        "PULM": "No effective breathing.",
+        "NEURO": "GCS 3. Pupils mid-size."
+      },
+      "terminal": false
+    },
+    {
+      "id": "rosc",
+      "label": "Return of spontaneous circulation",
+      "vitals": { "hr": 104, "sbp": 96, "dbp": 60, "rr": 18, "spo2": 94, "tempC": 36.9, "rhythm": "Sinus tachycardia" },
+      "appearance": "Drowsy but opening eyes to voice. Breathing on his own.",
+      "exam": {
+        "GENERAL": "Drowsy, rousable to voice.",
+        "NEURO": "GCS 12 (E3 V4 M5). Moving all limbs."
+      },
+      "terminal": false
+    },
+    {
+      "id": "post_lysis",
+      "label": "Fibrinolysis given, awaiting reperfusion",
+      "vitals": { "hr": 88, "sbp": 110, "dbp": 70, "rr": 20, "spo2": 96, "tempC": 36.9, "rhythm": "Sinus rhythm" },
+      "appearance": "Still uncomfortable. Pain easing slightly.",
+      "exam": {
+        "GENERAL": "Still sweaty. Pain 6/10."
+      },
+      "patientSays": "It is a little better, but still heavy.",
+      "terminal": false
+    },
+    {
+      "id": "reperfused",
+      "label": "Reperfusion",
+      "vitals": { "hr": 76, "sbp": 118, "dbp": 72, "rr": 16, "spo2": 97, "tempC": 36.9, "rhythm": "Sinus rhythm (brief accelerated idioventricular rhythm, self-terminated)" },
+      "appearance": "Comfortable, colour returning.",
+      "exam": {
+        "GENERAL": "Comfortable. Pain 1-2/10.",
+        "SKIN": "Warm hands. Capillary refill under 2 seconds."
+      },
+      "patientSays": "The pain has almost gone. Thank you, doctor.",
+      "terminal": false
+    },
+    {
+      "id": "handover",
+      "label": "Transferred for angiography",
+      "vitals": { "hr": 74, "sbp": 120, "dbp": 74, "rr": 16, "spo2": 97, "tempC": 36.9, "rhythm": "Sinus rhythm" },
+      "appearance": "Comfortable on the ambulance trolley.",
+      "exam": {},
+      "terminal": true,
+      "outcome": "Reperfused after fibrinolysis and transferred to the PCI centre for angiography (pharmaco-invasive strategy)."
+    },
+    {
+      "id": "death",
+      "label": "Death",
+      "vitals": { "hr": 0, "sbp": 0, "dbp": 0, "rr": 0, "spo2": 0, "tempC": 36.5, "rhythm": "Asystole" },
+      "appearance": "No signs of life.",
+      "exam": {},
+      "terminal": true,
+      "outcome": "Died from untreated ventricular fibrillation."
+    }
+  ],
+
+  "history": [
+    { "id": "hx_onset", "topic": "Onset", "samplePrompts": ["When did the pain start?", "How long have you had the pain?"],
+      "answer": "About two hours ago, around 7 in the morning. I was driving my auto. It came on suddenly." },
+    { "id": "hx_character", "topic": "Character and radiation", "samplePrompts": ["What does the pain feel like?", "Does it go anywhere?"],
+      "answer": "Very heavy, like pressure in the middle of my chest. It goes to my jaw and left arm. It is 9 out of 10." },
+    { "id": "hx_associated", "topic": "Associated symptoms", "samplePrompts": ["Any sweating or vomiting?", "Are you breathless?"],
+      "answer": "I am sweating a lot. I vomited once. A little breathless." },
+    { "id": "hx_pmh", "topic": "Past medical history", "samplePrompts": ["Any medical problems?", "Diabetes or BP?"],
+      "answer": "Sugar for eight years, I take metformin. BP tablet also, amlodipine. Never had heart trouble before." },
+    { "id": "hx_smoking", "topic": "Smoking", "samplePrompts": ["Do you smoke?", "Beedi or cigarettes?"],
+      "answer": "Beedi, about 20 a day, for 30 years." },
+    { "id": "hx_family", "topic": "Family history", "samplePrompts": ["Anyone in the family with heart disease?"],
+      "answer": "My elder brother had a heart attack at 50." },
+    { "id": "hx_lysis_ci", "topic": "Bleeding and stroke risk", "samplePrompts": ["Any stroke, bleeding, recent surgery or head injury?", "Any black stools or blood in vomit?"],
+      "answer": "No stroke ever. No bleeding from anywhere, no black stools. No operation or injury." },
+    { "id": "hx_pde5", "topic": "Erectile dysfunction drugs", "samplePrompts": ["Have you taken sildenafil or Viagra?"],
+      "answer": "No, nothing like that." },
+    { "id": "hx_allergy", "topic": "Allergies", "samplePrompts": ["Any drug allergies?"],
+      "answer": "No allergies." }
+  ],
+
+  "investigations": [
+    { "id": "ecg_12lead", "name": "12-lead ECG", "turnaroundSec": 60, "resultsByState": {
+      "*": "Sinus rhythm 92. ST elevation 3 mm in II, III and aVF (III more than II). Reciprocal ST depression in I and aVL. 1 mm ST elevation in V1. Acute inferior STEMI; suspect right ventricular involvement.",
+      "nitrate_hypotension": "Sinus tachycardia 114. Persistent inferior ST elevation with reciprocal changes in I and aVL.",
+      "complete_heart_block": "Complete heart block, ventricular rate 36, broad escape. Inferior ST elevation persists.",
+      "paced": "Paced rhythm with capture at 70. ST segments cannot be reliably assessed.",
+      "vf_arrest": "Ventricular fibrillation.",
+      "rosc": "Sinus tachycardia 104. Inferior ST elevation persists.",
+      "post_lysis": "Sinus rhythm 88. Inferior ST elevation slightly reduced (2.5 mm in III).",
+      "reperfused": "Sinus rhythm 76. More than 50% ST resolution in III. Early T-wave inversion inferiorly."
+    }},
+    { "id": "ecg_right_sided", "name": "Right-sided ECG (V4R)", "turnaroundSec": 60, "resultsByState": {
+      "*": "1.5 mm ST elevation in V4R. Right ventricular infarction.",
+      "vf_arrest": "Ventricular fibrillation.",
+      "reperfused": "ST elevation in V4R resolving."
+    }},
+    { "id": "pocus_echo", "name": "Bedside echo (POCUS)", "turnaroundSec": 120, "resultsByState": {
+      "*": "Inferior wall hypokinesia. Dilated, poorly contracting right ventricle. LV ejection fraction about 50%. No pericardial effusion. Aortic root not dilated.",
+      "vf_arrest": "Fibrillating ventricle, no organised contraction."
+    }},
+    { "id": "cbg", "name": "Capillary blood glucose", "turnaroundSec": 30, "resultsByState": {
+      "*": "238 mg/dL"
+    }},
+    { "id": "troponin", "name": "High-sensitivity troponin I", "turnaroundSec": 3600, "resultsByState": {
+      "*": "1,850 ng/L (raised). Note: in STEMI, reperfusion decisions never wait for troponin."
+    }},
+    { "id": "bloods_basic", "name": "CBC, renal function, electrolytes", "turnaroundSec": 1800, "resultsByState": {
+      "*": "Hb 13.8 g/dL, platelets 2.4 lakh/µL, creatinine 1.1 mg/dL, Na 136, K 4.2 mmol/L."
+    }},
+    { "id": "coag", "name": "PT/INR", "turnaroundSec": 1800, "resultsByState": {
+      "*": "INR 1.0"
+    }},
+    { "id": "cxr", "name": "Portable chest X-ray", "turnaroundSec": 900, "resultsByState": {
+      "*": "Normal heart size. No pulmonary oedema. Mediastinum not widened."
+    }}
+  ],
+
+  "interventions": [
+    { "id": "monitor_iv", "name": "Monitor, defib pads on, two IV lines", "category": "SUPPORT",
+      "feedbackByState": { "*": "Monitor and pads attached. Two 18G cannulae in place." } },
+
+    { "id": "oxygen", "name": "Oxygen", "category": "SUPPORT", "dose": "Titrate to SpO₂ 94–98%", "repeatable": true,
+      "notIndicatedWhen": ["vitals.spo2>=90"],
+      "notIndicatedReason": "SpO₂ is 90% or above: routine oxygen is not recommended in ACS." },
+
+    { "id": "aspirin", "name": "Aspirin", "category": "ANTIPLATELET", "dose": "300 mg chewed", "route": "PO",
+      "contraindicatedWhen": ["fact:aspirin_allergy"],
+      "contraindicationReason": "Aspirin given despite true aspirin allergy." },
+
+    { "id": "clopidogrel", "name": "Clopidogrel", "category": "ANTIPLATELET", "dose": "300 mg loading", "route": "PO" },
+
+    { "id": "ticagrelor", "name": "Ticagrelor", "category": "ANTIPLATELET", "dose": "180 mg loading", "route": "PO",
+      "notIndicatedWhen": ["always"],
+      "notIndicatedReason": "With fibrinolysis, clopidogrel is the recommended P2Y12 inhibitor. Ticagrelor and prasugrel are not recommended alongside fibrinolytics." },
+
+    { "id": "enoxaparin", "name": "Enoxaparin", "category": "ANTICOAGULANT",
+      "dose": "30 mg IV bolus, then 1 mg/kg (68 mg) SC 15 minutes later", "route": "IV then SC" },
+
+    { "id": "ufh", "name": "Unfractionated heparin", "category": "ANTICOAGULANT",
+      "dose": "60 IU/kg IV bolus (max 4,000 IU), then 12 IU/kg/h (max 1,000 IU/h)", "route": "IV" },
+
+    { "id": "tenecteplase", "name": "Tenecteplase", "category": "FIBRINOLYTIC",
+      "dose": "35 mg single bolus (weight 60–69 kg)", "route": "IV",
+      "requires": ["done:ecg_12lead", "notState:vf_arrest"],
+      "requiresMessage": "Fibrinolysis needs an ECG diagnosis of STEMI first, and cannot be given during cardiac arrest; defibrillate first.",
+      "contraindicatedWhen": ["fact:lysis_absolute_ci"],
+      "contraindicationReason": "Fibrinolysis given despite an absolute contraindication." },
+
+    { "id": "explain_consent", "name": "Explain fibrinolysis and take consent", "category": "COMMUNICATION",
+      "feedbackByState": { "*": "Sasidharan and his wife understand the benefit and the bleeding risk and agree." } },
+
+    { "id": "gtn_sl", "name": "Nitroglycerin (GTN)", "category": "ANTI-ISCHAEMIC", "dose": "0.4 mg", "route": "SL",
+      "contraindicatedWhen": ["fact:rv_infarct", "vitals.sbp<90"],
+      "contraindicationReason": "Nitrates in right ventricular infarction (preload-dependent) or with SBP below 90 can cause profound hypotension. Record right-sided leads before giving nitrates in inferior STEMI." },
+
+    { "id": "morphine", "name": "Morphine", "category": "ANALGESIA", "dose": "2–4 mg titrated", "route": "IV",
+      "contraindicatedWhen": ["vitals.sbp<90"],
+      "contraindicationReason": "Opioid given while hypotensive." },
+
+    { "id": "ns_bolus", "name": "0.9% saline bolus", "category": "FLUIDS", "dose": "250 mL over 10–15 minutes, then reassess", "route": "IV", "repeatable": true,
+      "feedbackByState": {
+        "*": "Bolus given. Chest remains clear.",
+        "nitrate_hypotension": "Blood pressure is responding to fluid."
+      } },
+
+    { "id": "atropine", "name": "Atropine", "category": "ANTIARRHYTHMIC", "dose": "0.5 mg, repeat to max 3 mg", "route": "IV", "repeatable": true,
+      "notIndicatedWhen": ["vitals.hr>=60"],
+      "notIndicatedReason": "Heart rate is not slow. Atropine is not indicated.",
+      "feedbackByState": {
+        "complete_heart_block": "No meaningful rise in rate. A broad escape rhythm suggests block below the AV node. Prepare pacing."
+      } },
+
+    { "id": "transcutaneous_pacing", "name": "Transcutaneous pacing", "category": "PROCEDURE",
+      "dose": "Rate 70, increase current until capture; give analgesia", "repeatable": true,
+      "notIndicatedWhen": ["vitals.hr>=50"],
+      "notIndicatedReason": "No haemodynamically significant bradycardia. Pacing is not indicated.",
+      "feedbackByState": {
+        "complete_heart_block": "Capture at 85 mA. Confirm with the femoral pulse."
+      } },
+
+    { "id": "cpr", "name": "High-quality CPR", "category": "RESUSCITATION", "dose": "30:2, minimal interruptions", "repeatable": true,
+      "notIndicatedWhen": ["notState:vf_arrest"],
+      "notIndicatedReason": "The patient has a pulse. CPR is not indicated.",
+      "feedbackByState": { "vf_arrest": "CPR in progress. Defibrillate as soon as the pads are charged." } },
+
+    { "id": "defibrillate", "name": "Unsynchronised shock", "category": "RESUSCITATION", "dose": "200 J biphasic", "repeatable": true,
+      "contraindicatedWhen": ["notState:vf_arrest"],
+      "contraindicationReason": "Unsynchronised shock given to a patient with a pulse. This can trigger VF." },
+
+    { "id": "arrange_transfer_pci", "name": "Call PCI centre and arrange ALS transfer", "category": "DISPOSITION",
+      "feedbackByState": {
+        "*": "The PCI centre accepts. Transfer time is about 3 hours, so primary PCI cannot happen within 120 minutes of diagnosis.",
+        "reperfused": "ALS ambulance ready. Handover given to the PCI centre."
+      } }
+  ],
+
+  "transitions": [
+    { "id": "t_nitrate_hypotension", "from": ["presenting"], "to": "nitrate_hypotension",
+      "trigger": { "onAction": "gtn_sl" }, "when": ["fact:rv_infarct"],
+      "message": "BP falls sharply after the nitrate. The RV is preload-dependent." },
+
+    { "id": "t_fluid_recovers", "from": ["nitrate_hypotension"], "to": "presenting",
+      "trigger": { "onAction": "ns_bolus" },
+      "message": "Blood pressure recovers with fluid." },
+
+    { "id": "t_lysis", "from": ["presenting", "nitrate_hypotension", "complete_heart_block", "paced", "rosc"], "to": "post_lysis",
+      "trigger": { "onAction": "tenecteplase" },
+      "message": "Tenecteplase given. Watch for reperfusion." },
+
+    { "id": "t_reperfusion", "from": ["post_lysis"], "to": "reperfused",
+      "trigger": { "afterSecondsInState": 600 },
+      "message": "Signs of reperfusion: pain settling and ST segments resolving." },
+
+    { "id": "t_handover_after_call", "from": ["reperfused"], "to": "handover",
+      "trigger": { "afterSecondsInState": 60 }, "when": ["done:arrange_transfer_pci"],
+      "message": "The ALS ambulance leaves for the PCI centre." },
+
+    { "id": "t_handover", "from": ["reperfused"], "to": "handover",
+      "trigger": { "onAction": "arrange_transfer_pci" },
+      "message": "The ALS ambulance leaves for the PCI centre." },
+
+    { "id": "t_vf", "from": ["presenting", "nitrate_hypotension", "complete_heart_block", "paced"], "to": "vf_arrest",
+      "trigger": { "afterCaseSeconds": 1500 }, "unless": ["done:tenecteplase"],
+      "message": "VF arrest: the patient is unresponsive and pulseless." },
+
+    { "id": "t_chb", "from": ["presenting", "nitrate_hypotension"], "to": "complete_heart_block",
+      "trigger": { "afterCaseSeconds": 900 }, "unless": ["done:tenecteplase"],
+      "message": "Heart rate drops suddenly: complete heart block." },
+
+    { "id": "t_pace", "from": ["complete_heart_block"], "to": "paced",
+      "trigger": { "onAction": "transcutaneous_pacing" },
+      "message": "Pacing captures. Perfusion improves." },
+
+    { "id": "t_defib", "from": ["vf_arrest"], "to": "rosc",
+      "trigger": { "onAction": "defibrillate" },
+      "message": "After the shock and 2 minutes of CPR: return of spontaneous circulation." },
+
+    { "id": "t_death", "from": ["vf_arrest"], "to": "death",
+      "trigger": { "afterSecondsInState": 240 },
+      "message": "No defibrillation. Asystole." }
+  ],
+
+  "criticalActions": [
+    { "id": "ca_ecg", "label": "12-lead ECG within 10 minutes of arrival", "satisfiedBy": ["ecg_12lead"], "deadlineSec": 600, "points": 15,
+      "teaching": "Every patient with suspected ACS needs a 12-lead ECG read within 10 minutes of first contact." },
+    { "id": "ca_aspirin", "label": "Aspirin given", "satisfiedBy": ["aspirin"], "deadlineSec": 1200, "points": 10,
+      "teaching": "Give aspirin loading early to every STEMI patient without a true allergy." },
+    { "id": "ca_rv", "label": "Right-sided leads recorded in inferior STEMI", "satisfiedBy": ["ecg_right_sided"], "points": 10,
+      "teaching": "Inferior STEMI with ST elevation in V1 or a raised JVP with clear lungs suggests RV infarction. Record V4R." },
+    { "id": "ca_no_nitrate", "label": "Nitrates avoided in RV infarction", "satisfiedBy": ["gtn_sl"], "avoid": true, "points": 10,
+      "teaching": "RV infarction is preload-dependent. Avoid nitrates and diuretics; give careful fluids if hypotensive." },
+    { "id": "ca_call_pci", "label": "PCI centre contacted early to decide the reperfusion strategy", "satisfiedBy": ["arrange_transfer_pci"], "points": 10,
+      "teaching": "Decide the reperfusion strategy from the expected time to PCI. If PCI is not possible within 120 minutes of diagnosis, give fibrinolysis." },
+    { "id": "ca_ci_screen", "label": "Fibrinolysis contraindications screened", "satisfiedBy": ["ask:hx_lysis_ci"], "points": 10,
+      "teaching": "Before lysis, ask about prior intracranial bleeding, recent ischaemic stroke, active bleeding, recent major surgery or head trauma, and suspected aortic dissection." },
+    { "id": "ca_lysis", "label": "Tenecteplase within 10 minutes of STEMI diagnosis", "satisfiedBy": ["tenecteplase"], "deadlineSec": 600, "deadlineAfterAction": "ecg_12lead", "points": 20,
+      "teaching": "When fibrinolysis is chosen, give the bolus within 10 minutes of diagnosis. Dose by weight; use half dose at age 75 or over." },
+    { "id": "ca_p2y12", "label": "Clopidogrel with fibrinolysis", "satisfiedBy": ["clopidogrel"], "points": 5,
+      "teaching": "Clopidogrel 300 mg (age 75 or under) is the P2Y12 inhibitor to use with fibrinolysis." },
+    { "id": "ca_anticoag", "label": "Anticoagulant with fibrinolysis", "satisfiedBy": ["enoxaparin", "ufh"], "points": 5,
+      "teaching": "Give an anticoagulant with lysis: enoxaparin is preferred over UFH." },
+    { "id": "ca_pacing", "label": "Pacing for unstable complete heart block", "satisfiedBy": ["transcutaneous_pacing"], "appliesIfVisited": "complete_heart_block", "points": 10,
+      "teaching": "Atropine rarely works in infranodal block. Pace early when the patient is unstable." },
+    { "id": "ca_defib", "label": "Immediate defibrillation for VF", "satisfiedBy": ["defibrillate"], "appliesIfVisited": "vf_arrest", "points": 10,
+      "teaching": "VF needs immediate defibrillation and high-quality CPR. Every minute of delay lowers survival." }
+  ],
+
+  "debrief": {
+    "diagnosis": "Acute inferior STEMI with right ventricular involvement",
+    "summary": "A 56-year-old diabetic smoker with 2 hours of ischaemic pain. Inferior ST elevation with ST elevation in V1 and V4R, raised JVP and clear lungs point to RV infarction. With no cath lab and about 3 hours to PCI, fibrinolysis was the reperfusion strategy.",
+    "disposition": "After fibrinolysis, transfer to a PCI-capable centre: angiography within 2–24 hours if lysis succeeds, or immediate rescue PCI if ST resolution is under 50% at 60–90 minutes, or there is ongoing ischaemia, haemodynamic or electrical instability.",
+    "teachingPoints": [
+      "Time is muscle: 12-lead ECG within 10 minutes, decide the reperfusion strategy right away.",
+      "If PCI cannot be done within 120 minutes of diagnosis and symptoms began within 12 hours, give fibrinolysis without delay.",
+      "In inferior STEMI, record right-sided leads before nitrates. Treat RV infarct hypotension with fluids, not nitrates.",
+      "Tenecteplase is weight-based (30–50 mg). Use half dose at age 75 or over.",
+      "Adjuncts with lysis: aspirin, clopidogrel 300 mg (age 75 or under), and enoxaparin (preferred) or UFH.",
+      "Routine oxygen is not recommended when SpO₂ is 90% or above.",
+      "Inferior MI can cause AV block. Atropine helps nodal block; pace unstable infranodal block."
+    ]
+  }
+}
+6. NEW FILE: app/src/test/java/com/example/engine/CaseEngineTest.kt
+kotlin
+package com.example.engine
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+import java.io.File
+
+class CaseEngineTest {
+
+    private val def: CaseDefinition by lazy {
+        // Gradle runs unit tests with the module (app/) as working directory
+        val f = listOf("src/main/assets/cases/ersim_stemi_001.json", "app/src/main/assets/cases/ersim_stemi_001.json")
+            .map { File(it) }.firstOrNull { it.exists() } ?: error("Case file not found from ${File(".").absolutePath}")
+        CaseParser.parse(f.readText())
+    }
+
+    private fun run(vararg events: SimEvent): CaseSession =
+        CaseEngine.reduceAll(def, CaseEngine.start(def), events.toList())
+
+    private fun CaseSession.kinds(kind: LogKind) = log.filter { it.kind == kind }
+
+    // ------------------------------------------------------------ format
+    @Test fun miniJson_parsesNestedValues() {
+        val v = MiniJson.parse("""{"a":[1,2.5,-3e1],"b":{"c":"x\"y\u00e9"},"d":true,"e":null}""") as Map<*, *>
+        assertEquals(listOf(1.0, 2.5, -30.0), v["a"])
+        assertEquals("x\"yé", (v["b"] as Map<*, *>)["c"])
+        assertEquals(true, v["d"])
+        assertTrue(v.containsKey("e"))
+    }
+
+    @Test fun miniJson_rejectsTrailingCommaAndDuplicates() {
+        expectFailure { MiniJson.parse("""{"a":1,}""") }
+        expectFailure { MiniJson.parse("""{"a":1,"a":2}""") }
+    }
+
+    @Test fun stemiCase_loadsAndValidates() {
+        assertEquals("ERSIM-STEMI-001", def.meta.caseId)
+        assertEquals("DRAFT", def.meta.reviewStatus)
+        assertEquals("presenting", def.initialStateId)
+        assertTrue(def.states.values.any { it.terminal })
+        assertEquals(CaseParser.EXAM_REGIONS, def.baselineExam.keys)
+    }
+
+    @Test fun validator_catchesBrokenReferences() {
+        val broken = File(caseFile()).readText().replace("\"to\": \"post_lysis\"", "\"to\": \"nowhere\"")
+        expectFailure { CaseParser.parse(broken) }
+    }
+
+    @Test fun condition_parserRejectsUnknownSyntax() {
+        expectFailure { Condition.parse("vitals.map<65") }
+        assertEquals(Condition.VitalCompare("sbp", "<", 90), Condition.parse("vitals.sbp<90"))
+    }
+
+    // ------------------------------------------------------------ ideal pathway
+    @Test fun idealPathway_reperfusesAndTransfers_fullScore() {
+        val s = run(
+            SimEvent.Perform("monitor_iv"),
+            SimEvent.Order("ecg_12lead"),
+            SimEvent.Ask("hx_onset"),
+            SimEvent.Ask("hx_lysis_ci"),
+            SimEvent.Advance(60),                       // ECG result
+            SimEvent.Order("ecg_right_sided"),
+            SimEvent.Perform("aspirin"),
+            SimEvent.Perform("clopidogrel"),
+            SimEvent.Perform("enoxaparin"),
+            SimEvent.Perform("arrange_transfer_pci"),
+            SimEvent.Perform("explain_consent"),
+            SimEvent.Advance(60),
+            SimEvent.Perform("tenecteplase"),
+            SimEvent.Advance(600),                      // reperfusion
+            SimEvent.Advance(60)                        // auto handover (transfer already arranged)
+        )
+        assertTrue(s.ended)
+        assertEquals("handover", s.stateId)
+        assertTrue(s.harms.isEmpty())
+        assertTrue("reperfused" in s.visitedStates)
+        assertTrue(s.results["ecg_12lead"]!!.contains("inferior STEMI"))
+        val d = CaseEngine.debrief(def, s)
+        assertEquals(100, d.scorePercent)
+        assertTrue(d.criticalActions.all { it.met })
+        // conditional actions not scored because those complications never happened
+        assertFalse(d.criticalActions.any { it.def.id == "ca_pacing" || it.def.id == "ca_defib" })
+    }
+
+    // ------------------------------------------------------------ safety
+    @Test fun nitrateInRvInfarct_causesHypotensionAndHarm_fluidsRescue() {
+        var s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(60), SimEvent.Perform("gtn_sl"))
+        assertEquals("nitrate_hypotension", s.stateId)
+        assertEquals(1, s.harms.size)
+        assertEquals(74, CaseEngine.currentState(def, s).vitals.sbp)
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("ns_bolus"))
+        assertEquals("presenting", s.stateId)
+        val d = CaseEngine.debrief(def, s)
+        assertFalse(d.criticalActions.first { it.def.id == "ca_no_nitrate" }.met)
+    }
+
+    @Test fun lysisWithoutEcg_isRejected() {
+        val s = run(SimEvent.Perform("tenecteplase"))
+        assertEquals("presenting", s.stateId)
+        assertFalse("tenecteplase" in s.performed)
+        assertEquals(1, s.kinds(LogKind.REJECTED).size)
+    }
+
+    @Test fun oxygenAtNormalSats_isNoteNotHarm() {
+        val s = run(SimEvent.Perform("oxygen"))
+        assertTrue(s.harms.isEmpty())
+        assertEquals(1, s.kinds(LogKind.NOTE).size)
+    }
+
+    @Test fun shockingPatientWithPulse_isHarm() {
+        val s = run(SimEvent.Perform("defibrillate"))
+        assertEquals(1, s.harms.size)
+        assertEquals("presenting", s.stateId)
+    }
+
+    @Test fun nonRepeatableAction_secondAttemptRejected() {
+        val s = run(SimEvent.Perform("aspirin"), SimEvent.Perform("aspirin"))
+        assertEquals(1, s.performedCount["aspirin"])
+        assertEquals(1, s.kinds(LogKind.REJECTED).size)
+    }
+
+    // ------------------------------------------------------------ timed deterioration
+    @Test fun noReperfusion_heartBlockAt15min_pacingRescues() {
+        var s = run(SimEvent.Advance(899))
+        assertEquals("presenting", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(1))
+        assertEquals("complete_heart_block", s.stateId)
+        assertEquals(36, CaseEngine.currentState(def, s).vitals.hr)
+
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("atropine"))
+        assertEquals("complete_heart_block", s.stateId)          // atropine fails in infranodal block
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("transcutaneous_pacing"))
+        assertEquals("paced", s.stateId)
+        val d = CaseEngine.debrief(def, s)
+        assertTrue(d.criticalActions.first { it.def.id == "ca_pacing" }.met)
+    }
+
+    @Test fun noReperfusion_vfAt25min_deathWithoutShock() {
+        var s = run(SimEvent.Advance(1500))
+        assertEquals("vf_arrest", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(240))
+        assertTrue(s.ended)
+        assertEquals("death", s.stateId)
+        // ended sessions ignore further events
+        assertEquals(s, CaseEngine.reduce(def, s, SimEvent.Perform("defibrillate")))
+    }
+
+    @Test fun vf_shockGivesRosc_thenLysisStillPossible() {
+        var s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(1500))
+        assertEquals("vf_arrest", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("tenecteplase"))   // blocked during arrest
+        assertEquals("vf_arrest", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("defibrillate"))
+        assertEquals("rosc", s.stateId)
+        assertTrue(s.harms.isEmpty())
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("tenecteplase"))
+        assertEquals("post_lysis", s.stateId)
+    }
+
+    @Test fun lysisBefore15min_preventsHeartBlock() {
+        val s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(60), SimEvent.Perform("tenecteplase"), SimEvent.Advance(900))
+        assertFalse("complete_heart_block" in s.visitedStates)
+        assertEquals("reperfused", s.stateId)
+    }
+
+    // ------------------------------------------------------------ investigations
+    @Test fun result_reflectsStateWhenOrdered_andArrivesAfterTurnaround() {
+        var s = run(SimEvent.Order("ecg_12lead"))
+        assertTrue(s.results.isEmpty())
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(59))
+        assertTrue(s.results.isEmpty())
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(1))
+        assertTrue(s.results.getValue("ecg_12lead").startsWith("Sinus rhythm 92"))
+    }
+
+    @Test fun troponin_takesAnHour() {
+        // Lyse first: an untreated patient dies before an hour has passed
+        val s = run(
+            SimEvent.Order("ecg_12lead"), SimEvent.Advance(60), SimEvent.Perform("tenecteplase"),
+            SimEvent.Order("troponin"), SimEvent.Advance(3599)
+        )
+        assertFalse("troponin" in s.results)
+        assertNotNull(CaseEngine.reduce(def, s, SimEvent.Advance(1)).results["troponin"])
+    }
+
+    // ------------------------------------------------------------ scoring
+    @Test fun lateLysis_isMarkedLate() {
+        val s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(700), SimEvent.Perform("tenecteplase"))
+        val ca = CaseEngine.debrief(def, s).criticalActions.first { it.def.id == "ca_lysis" }
+        assertTrue(ca.late)
+        assertFalse(ca.met)
+    }
+
+    @Test fun exam_usesStateOverrideThenBaseline() {
+        var s = run(SimEvent.Examine("HEENT"))
+        assertTrue(s.log.last().text.contains("JVP raised"))
+        s = CaseEngine.reduceAll(def, s, listOf(SimEvent.Advance(900), SimEvent.Examine("CARD")))
+        assertTrue(s.log.last().text.contains("Cannon waves"))
+    }
+
+    @Test fun engine_isDeterministic() {
+        val events = listOf(SimEvent.Order("ecg_12lead"), SimEvent.Advance(120), SimEvent.Perform("gtn_sl"), SimEvent.Advance(1000))
+        val a = CaseEngine.reduceAll(def, CaseEngine.start(def), events)
+        val b = CaseEngine.reduceAll(def, CaseEngine.start(def), events)
+        assertEquals(a, b)
+    }
+
+    // ------------------------------------------------------------ helpers
+    private fun caseFile() = listOf("src/main/assets/cases/ersim_stemi_001.json", "app/src/main/assets/cases/ersim_stemi_001.json")
+        .first { File(it).exists() }
+
+    private fun expectFailure(block: () -> Unit) {
+        try { block() } catch (e: RuntimeException) { return }
+        fail("Expected an exception")
+    }
+}
+
+To run the tests in Studio, right-click CaseEngineTest → Run, or use the terminal: ./gradlew :app:testDebugUnitTest --tests "com.example.engine.*". All 20 passed here using the same files.
+
+None of this changes anything you can see yet: the engine isn’t connected to the app screens. The next step is a CaseEngineViewModel that runs a 1-second timer, connects the monitor, exam hotspots, history, orders and treatments to the engine, and shows the debrief screen. I’ve logged this in the project plan.

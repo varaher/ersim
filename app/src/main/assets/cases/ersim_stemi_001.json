@@ -1,0 +1,394 @@
+{
+  "meta": {
+    "caseId": "ERSIM-STEMI-001",
+    "version": 1,
+    "title": "Chest pain at the taluk hospital",
+    "category": "Cardiovascular",
+    "difficulty": "Intermediate",
+    "learnerLevel": "Intern to EM resident",
+    "estimatedMinutes": 25,
+    "reviewStatus": "DRAFT",
+    "authors": ["ER SIM clinical content team (draft prepared with Claude)"],
+    "reviewers": [],
+    "guidelineBasis": "2023 ESC Guidelines for the management of acute coronary syndromes",
+    "evidenceDate": "2023-08",
+    "sourceNotes": "Original ER SIM scenario. Not derived from any textbook case. Doses and thresholds must be confirmed by the reviewing emergency physician before status APPROVED.",
+    "learningObjectives": [
+      "Obtain and interpret a 12-lead ECG within 10 minutes of arrival",
+      "Recognise inferior STEMI and look for right ventricular involvement before giving nitrates",
+      "Choose fibrinolysis when primary PCI cannot be achieved within 120 minutes",
+      "Screen for fibrinolysis contraindications and give weight-based tenecteplase promptly",
+      "Give the correct adjuncts with fibrinolysis: aspirin, clopidogrel, anticoagulant",
+      "Manage complications: nitrate-induced hypotension, complete heart block, VF",
+      "Arrange transfer for a pharmaco-invasive strategy"
+    ]
+  },
+
+  "patient": {
+    "name": "Sasidharan K.",
+    "ageYears": 56,
+    "sex": "MALE",
+    "weightKg": 68,
+    "characterFamily": "adult_male",
+    "language": "Malayalam",
+    "historian": "SELF",
+    "setting": "Taluk hospital emergency department, Kerala. No cath lab. Nearest PCI-capable centre is about 3 hours by road."
+  },
+
+  "presentation": {
+    "chiefComplaint": "Central chest pain and sweating for 2 hours",
+    "triageNote": "Auto-rickshaw driver brought by his wife. Chest pain since about 7 am, sweaty, vomited once. Triage: RED."
+  },
+
+  "facts": ["inferior_stemi", "rv_infarct"],
+
+  "initialState": "presenting",
+
+  "baselineExam": {
+    "GENERAL": "Anxious, sweating, pale. Talking in full sentences. Pain 9/10.",
+    "HEENT": "JVP raised to the angle of the jaw while sitting at 45 degrees. No pallor of conjunctivae.",
+    "PULM": "Clear breath sounds both sides. No crackles.",
+    "CARD": "Regular pulse. Normal S1 S2. No murmur, no rub.",
+    "ABD": "Soft, non-tender. No organomegaly.",
+    "SKIN": "Cool, clammy hands. Capillary refill 3 seconds. No oedema.",
+    "NEURO": "GCS 15. No focal deficit. Pupils equal and reactive."
+  },
+
+  "states": [
+    {
+      "id": "presenting",
+      "label": "Ongoing ischaemic chest pain",
+      "vitals": { "hr": 92, "sbp": 108, "dbp": 68, "rr": 20, "spo2": 96, "tempC": 36.9, "rhythm": "Sinus rhythm" },
+      "appearance": "Sweating, pale, holding his chest.",
+      "exam": {},
+      "patientSays": "Doctor, my chest feels like a heavy stone is sitting on it. I am sweating so much.",
+      "terminal": false
+    },
+    {
+      "id": "nitrate_hypotension",
+      "label": "Profound hypotension after nitrate",
+      "vitals": { "hr": 114, "sbp": 74, "dbp": 46, "rr": 24, "spo2": 95, "tempC": 36.9, "rhythm": "Sinus tachycardia" },
+      "appearance": "Grey, drowsy, about to faint.",
+      "exam": {
+        "GENERAL": "Grey and drowsy. Responds to voice. Pain unchanged.",
+        "SKIN": "Cold, mottled hands. Capillary refill 5 seconds.",
+        "NEURO": "GCS 14 (confused). No focal deficit."
+      },
+      "patientSays": "Everything is going dark... I feel like I will faint.",
+      "terminal": false
+    },
+    {
+      "id": "complete_heart_block",
+      "label": "Complete heart block",
+      "vitals": { "hr": 36, "sbp": 82, "dbp": 50, "rr": 22, "spo2": 94, "tempC": 36.9, "rhythm": "Complete heart block, broad ventricular escape" },
+      "appearance": "Pale, slow to respond, still in pain.",
+      "exam": {
+        "GENERAL": "Pale and slowed. Pain 8/10.",
+        "CARD": "Slow regular pulse about 36. Cannon waves in the neck.",
+        "NEURO": "GCS 14 (slow to answer). No focal deficit."
+      },
+      "patientSays": "I feel so weak... my head is spinning.",
+      "terminal": false
+    },
+    {
+      "id": "paced",
+      "label": "Transcutaneous pacing with capture",
+      "vitals": { "hr": 70, "sbp": 102, "dbp": 64, "rr": 20, "spo2": 95, "tempC": 36.9, "rhythm": "Paced rhythm, electrical and mechanical capture" },
+      "appearance": "More alert. Uncomfortable with the pacing.",
+      "exam": {
+        "CARD": "Femoral pulse matches paced rate of 70.",
+        "NEURO": "GCS 15."
+      },
+      "patientSays": "That is very painful in my chest wall, doctor.",
+      "terminal": false
+    },
+    {
+      "id": "vf_arrest",
+      "label": "Ventricular fibrillation arrest",
+      "vitals": { "hr": 0, "sbp": 0, "dbp": 0, "rr": 0, "spo2": 0, "tempC": 36.9, "rhythm": "Ventricular fibrillation" },
+      "appearance": "Unresponsive, not breathing normally, no pulse.",
+      "exam": {
+        "GENERAL": "Unresponsive. Agonal gasps.",
+        "CARD": "No central pulse.",
+        "PULM": "No effective breathing.",
+        "NEURO": "GCS 3. Pupils mid-size."
+      },
+      "terminal": false
+    },
+    {
+      "id": "rosc",
+      "label": "Return of spontaneous circulation",
+      "vitals": { "hr": 104, "sbp": 96, "dbp": 60, "rr": 18, "spo2": 94, "tempC": 36.9, "rhythm": "Sinus tachycardia" },
+      "appearance": "Drowsy but opening eyes to voice. Breathing on his own.",
+      "exam": {
+        "GENERAL": "Drowsy, rousable to voice.",
+        "NEURO": "GCS 12 (E3 V4 M5). Moving all limbs."
+      },
+      "terminal": false
+    },
+    {
+      "id": "post_lysis",
+      "label": "Fibrinolysis given, awaiting reperfusion",
+      "vitals": { "hr": 88, "sbp": 110, "dbp": 70, "rr": 20, "spo2": 96, "tempC": 36.9, "rhythm": "Sinus rhythm" },
+      "appearance": "Still uncomfortable. Pain easing slightly.",
+      "exam": {
+        "GENERAL": "Still sweaty. Pain 6/10."
+      },
+      "patientSays": "It is a little better, but still heavy.",
+      "terminal": false
+    },
+    {
+      "id": "reperfused",
+      "label": "Reperfusion",
+      "vitals": { "hr": 76, "sbp": 118, "dbp": 72, "rr": 16, "spo2": 97, "tempC": 36.9, "rhythm": "Sinus rhythm (brief accelerated idioventricular rhythm, self-terminated)" },
+      "appearance": "Comfortable, colour returning.",
+      "exam": {
+        "GENERAL": "Comfortable. Pain 1-2/10.",
+        "SKIN": "Warm hands. Capillary refill under 2 seconds."
+      },
+      "patientSays": "The pain has almost gone. Thank you, doctor.",
+      "terminal": false
+    },
+    {
+      "id": "handover",
+      "label": "Transferred for angiography",
+      "vitals": { "hr": 74, "sbp": 120, "dbp": 74, "rr": 16, "spo2": 97, "tempC": 36.9, "rhythm": "Sinus rhythm" },
+      "appearance": "Comfortable on the ambulance trolley.",
+      "exam": {},
+      "terminal": true,
+      "outcome": "Reperfused after fibrinolysis and transferred to the PCI centre for angiography (pharmaco-invasive strategy)."
+    },
+    {
+      "id": "death",
+      "label": "Death",
+      "vitals": { "hr": 0, "sbp": 0, "dbp": 0, "rr": 0, "spo2": 0, "tempC": 36.5, "rhythm": "Asystole" },
+      "appearance": "No signs of life.",
+      "exam": {},
+      "terminal": true,
+      "outcome": "Died from untreated ventricular fibrillation."
+    }
+  ],
+
+  "history": [
+    { "id": "hx_onset", "topic": "Onset", "samplePrompts": ["When did the pain start?", "How long have you had the pain?"],
+      "answer": "About two hours ago, around 7 in the morning. I was driving my auto. It came on suddenly." },
+    { "id": "hx_character", "topic": "Character and radiation", "samplePrompts": ["What does the pain feel like?", "Does it go anywhere?"],
+      "answer": "Very heavy, like pressure in the middle of my chest. It goes to my jaw and left arm. It is 9 out of 10." },
+    { "id": "hx_associated", "topic": "Associated symptoms", "samplePrompts": ["Any sweating or vomiting?", "Are you breathless?"],
+      "answer": "I am sweating a lot. I vomited once. A little breathless." },
+    { "id": "hx_pmh", "topic": "Past medical history", "samplePrompts": ["Any medical problems?", "Diabetes or BP?"],
+      "answer": "Sugar for eight years, I take metformin. BP tablet also, amlodipine. Never had heart trouble before." },
+    { "id": "hx_smoking", "topic": "Smoking", "samplePrompts": ["Do you smoke?", "Beedi or cigarettes?"],
+      "answer": "Beedi, about 20 a day, for 30 years." },
+    { "id": "hx_family", "topic": "Family history", "samplePrompts": ["Anyone in the family with heart disease?"],
+      "answer": "My elder brother had a heart attack at 50." },
+    { "id": "hx_lysis_ci", "topic": "Bleeding and stroke risk", "samplePrompts": ["Any stroke, bleeding, recent surgery or head injury?", "Any black stools or blood in vomit?"],
+      "answer": "No stroke ever. No bleeding from anywhere, no black stools. No operation or injury." },
+    { "id": "hx_pde5", "topic": "Erectile dysfunction drugs", "samplePrompts": ["Have you taken sildenafil or Viagra?"],
+      "answer": "No, nothing like that." },
+    { "id": "hx_allergy", "topic": "Allergies", "samplePrompts": ["Any drug allergies?"],
+      "answer": "No allergies." }
+  ],
+
+  "investigations": [
+    { "id": "ecg_12lead", "name": "12-lead ECG", "turnaroundSec": 60, "resultsByState": {
+      "*": "Sinus rhythm 92. ST elevation 3 mm in II, III and aVF (III more than II). Reciprocal ST depression in I and aVL. 1 mm ST elevation in V1. Acute inferior STEMI; suspect right ventricular involvement.",
+      "nitrate_hypotension": "Sinus tachycardia 114. Persistent inferior ST elevation with reciprocal changes in I and aVL.",
+      "complete_heart_block": "Complete heart block, ventricular rate 36, broad escape. Inferior ST elevation persists.",
+      "paced": "Paced rhythm with capture at 70. ST segments cannot be reliably assessed.",
+      "vf_arrest": "Ventricular fibrillation.",
+      "rosc": "Sinus tachycardia 104. Inferior ST elevation persists.",
+      "post_lysis": "Sinus rhythm 88. Inferior ST elevation slightly reduced (2.5 mm in III).",
+      "reperfused": "Sinus rhythm 76. More than 50% ST resolution in III. Early T-wave inversion inferiorly."
+    }},
+    { "id": "ecg_right_sided", "name": "Right-sided ECG (V4R)", "turnaroundSec": 60, "resultsByState": {
+      "*": "1.5 mm ST elevation in V4R. Right ventricular infarction.",
+      "vf_arrest": "Ventricular fibrillation.",
+      "reperfused": "ST elevation in V4R resolving."
+    }},
+    { "id": "pocus_echo", "name": "Bedside echo (POCUS)", "turnaroundSec": 120, "resultsByState": {
+      "*": "Inferior wall hypokinesia. Dilated, poorly contracting right ventricle. LV ejection fraction about 50%. No pericardial effusion. Aortic root not dilated.",
+      "vf_arrest": "Fibrillating ventricle, no organised contraction."
+    }},
+    { "id": "cbg", "name": "Capillary blood glucose", "turnaroundSec": 30, "resultsByState": {
+      "*": "238 mg/dL"
+    }},
+    { "id": "troponin", "name": "High-sensitivity troponin I", "turnaroundSec": 3600, "resultsByState": {
+      "*": "1,850 ng/L (raised). Note: in STEMI, reperfusion decisions never wait for troponin."
+    }},
+    { "id": "bloods_basic", "name": "CBC, renal function, electrolytes", "turnaroundSec": 1800, "resultsByState": {
+      "*": "Hb 13.8 g/dL, platelets 2.4 lakh/µL, creatinine 1.1 mg/dL, Na 136, K 4.2 mmol/L."
+    }},
+    { "id": "coag", "name": "PT/INR", "turnaroundSec": 1800, "resultsByState": {
+      "*": "INR 1.0"
+    }},
+    { "id": "cxr", "name": "Portable chest X-ray", "turnaroundSec": 900, "resultsByState": {
+      "*": "Normal heart size. No pulmonary oedema. Mediastinum not widened."
+    }}
+  ],
+
+  "interventions": [
+    { "id": "monitor_iv", "name": "Monitor, defib pads on, two IV lines", "category": "SUPPORT",
+      "feedbackByState": { "*": "Monitor and pads attached. Two 18G cannulae in place." } },
+
+    { "id": "oxygen", "name": "Oxygen", "category": "SUPPORT", "dose": "Titrate to SpO₂ 94–98%", "repeatable": true,
+      "notIndicatedWhen": ["vitals.spo2>=90"],
+      "notIndicatedReason": "SpO₂ is 90% or above: routine oxygen is not recommended in ACS." },
+
+    { "id": "aspirin", "name": "Aspirin", "category": "ANTIPLATELET", "dose": "300 mg chewed", "route": "PO",
+      "contraindicatedWhen": ["fact:aspirin_allergy"],
+      "contraindicationReason": "Aspirin given despite true aspirin allergy." },
+
+    { "id": "clopidogrel", "name": "Clopidogrel", "category": "ANTIPLATELET", "dose": "300 mg loading", "route": "PO" },
+
+    { "id": "ticagrelor", "name": "Ticagrelor", "category": "ANTIPLATELET", "dose": "180 mg loading", "route": "PO",
+      "notIndicatedWhen": ["always"],
+      "notIndicatedReason": "With fibrinolysis, clopidogrel is the recommended P2Y12 inhibitor. Ticagrelor and prasugrel are not recommended alongside fibrinolytics." },
+
+    { "id": "enoxaparin", "name": "Enoxaparin", "category": "ANTICOAGULANT",
+      "dose": "30 mg IV bolus, then 1 mg/kg (68 mg) SC 15 minutes later", "route": "IV then SC" },
+
+    { "id": "ufh", "name": "Unfractionated heparin", "category": "ANTICOAGULANT",
+      "dose": "60 IU/kg IV bolus (max 4,000 IU), then 12 IU/kg/h (max 1,000 IU/h)", "route": "IV" },
+
+    { "id": "tenecteplase", "name": "Tenecteplase", "category": "FIBRINOLYTIC",
+      "dose": "35 mg single bolus (weight 60–69 kg)", "route": "IV",
+      "requires": ["done:ecg_12lead", "notState:vf_arrest"],
+      "requiresMessage": "Fibrinolysis needs an ECG diagnosis of STEMI first, and cannot be given during cardiac arrest; defibrillate first.",
+      "contraindicatedWhen": ["fact:lysis_absolute_ci"],
+      "contraindicationReason": "Fibrinolysis given despite an absolute contraindication." },
+
+    { "id": "explain_consent", "name": "Explain fibrinolysis and take consent", "category": "COMMUNICATION",
+      "feedbackByState": { "*": "Sasidharan and his wife understand the benefit and the bleeding risk and agree." } },
+
+    { "id": "gtn_sl", "name": "Nitroglycerin (GTN)", "category": "ANTI-ISCHAEMIC", "dose": "0.4 mg", "route": "SL",
+      "contraindicatedWhen": ["fact:rv_infarct", "vitals.sbp<90"],
+      "contraindicationReason": "Nitrates in right ventricular infarction (preload-dependent) or with SBP below 90 can cause profound hypotension. Record right-sided leads before giving nitrates in inferior STEMI." },
+
+    { "id": "morphine", "name": "Morphine", "category": "ANALGESIA", "dose": "2–4 mg titrated", "route": "IV",
+      "contraindicatedWhen": ["vitals.sbp<90"],
+      "contraindicationReason": "Opioid given while hypotensive." },
+
+    { "id": "ns_bolus", "name": "0.9% saline bolus", "category": "FLUIDS", "dose": "250 mL over 10–15 minutes, then reassess", "route": "IV", "repeatable": true,
+      "feedbackByState": {
+        "*": "Bolus given. Chest remains clear.",
+        "nitrate_hypotension": "Blood pressure is responding to fluid."
+      } },
+
+    { "id": "atropine", "name": "Atropine", "category": "ANTIARRHYTHMIC", "dose": "0.5 mg, repeat to max 3 mg", "route": "IV", "repeatable": true,
+      "notIndicatedWhen": ["vitals.hr>=60"],
+      "notIndicatedReason": "Heart rate is not slow. Atropine is not indicated.",
+      "feedbackByState": {
+        "complete_heart_block": "No meaningful rise in rate. A broad escape rhythm suggests block below the AV node. Prepare pacing."
+      } },
+
+    { "id": "transcutaneous_pacing", "name": "Transcutaneous pacing", "category": "PROCEDURE",
+      "dose": "Rate 70, increase current until capture; give analgesia", "repeatable": true,
+      "notIndicatedWhen": ["vitals.hr>=50"],
+      "notIndicatedReason": "No haemodynamically significant bradycardia. Pacing is not indicated.",
+      "feedbackByState": {
+        "complete_heart_block": "Capture at 85 mA. Confirm with the femoral pulse."
+      } },
+
+    { "id": "cpr", "name": "High-quality CPR", "category": "RESUSCITATION", "dose": "30:2, minimal interruptions", "repeatable": true,
+      "notIndicatedWhen": ["notState:vf_arrest"],
+      "notIndicatedReason": "The patient has a pulse. CPR is not indicated.",
+      "feedbackByState": { "vf_arrest": "CPR in progress. Defibrillate as soon as the pads are charged." } },
+
+    { "id": "defibrillate", "name": "Unsynchronised shock", "category": "RESUSCITATION", "dose": "200 J biphasic", "repeatable": true,
+      "contraindicatedWhen": ["notState:vf_arrest"],
+      "contraindicationReason": "Unsynchronised shock given to a patient with a pulse. This can trigger VF." },
+
+    { "id": "arrange_transfer_pci", "name": "Call PCI centre and arrange ALS transfer", "category": "DISPOSITION",
+      "feedbackByState": {
+        "*": "The PCI centre accepts. Transfer time is about 3 hours, so primary PCI cannot happen within 120 minutes of diagnosis.",
+        "reperfused": "ALS ambulance ready. Handover given to the PCI centre."
+      } }
+  ],
+
+  "transitions": [
+    { "id": "t_nitrate_hypotension", "from": ["presenting"], "to": "nitrate_hypotension",
+      "trigger": { "onAction": "gtn_sl" }, "when": ["fact:rv_infarct"],
+      "message": "BP falls sharply after the nitrate. The RV is preload-dependent." },
+
+    { "id": "t_fluid_recovers", "from": ["nitrate_hypotension"], "to": "presenting",
+      "trigger": { "onAction": "ns_bolus" },
+      "message": "Blood pressure recovers with fluid." },
+
+    { "id": "t_lysis", "from": ["presenting", "nitrate_hypotension", "complete_heart_block", "paced", "rosc"], "to": "post_lysis",
+      "trigger": { "onAction": "tenecteplase" },
+      "message": "Tenecteplase given. Watch for reperfusion." },
+
+    { "id": "t_reperfusion", "from": ["post_lysis"], "to": "reperfused",
+      "trigger": { "afterSecondsInState": 600 },
+      "message": "Signs of reperfusion: pain settling and ST segments resolving." },
+
+    { "id": "t_handover_after_call", "from": ["reperfused"], "to": "handover",
+      "trigger": { "afterSecondsInState": 60 }, "when": ["done:arrange_transfer_pci"],
+      "message": "The ALS ambulance leaves for the PCI centre." },
+
+    { "id": "t_handover", "from": ["reperfused"], "to": "handover",
+      "trigger": { "onAction": "arrange_transfer_pci" },
+      "message": "The ALS ambulance leaves for the PCI centre." },
+
+    { "id": "t_vf", "from": ["presenting", "nitrate_hypotension", "complete_heart_block", "paced"], "to": "vf_arrest",
+      "trigger": { "afterCaseSeconds": 1500 }, "unless": ["done:tenecteplase"],
+      "message": "VF arrest: the patient is unresponsive and pulseless." },
+
+    { "id": "t_chb", "from": ["presenting", "nitrate_hypotension"], "to": "complete_heart_block",
+      "trigger": { "afterCaseSeconds": 900 }, "unless": ["done:tenecteplase"],
+      "message": "Heart rate drops suddenly: complete heart block." },
+
+    { "id": "t_pace", "from": ["complete_heart_block"], "to": "paced",
+      "trigger": { "onAction": "transcutaneous_pacing" },
+      "message": "Pacing captures. Perfusion improves." },
+
+    { "id": "t_defib", "from": ["vf_arrest"], "to": "rosc",
+      "trigger": { "onAction": "defibrillate" },
+      "message": "After the shock and 2 minutes of CPR: return of spontaneous circulation." },
+
+    { "id": "t_death", "from": ["vf_arrest"], "to": "death",
+      "trigger": { "afterSecondsInState": 240 },
+      "message": "No defibrillation. Asystole." }
+  ],
+
+  "criticalActions": [
+    { "id": "ca_ecg", "label": "12-lead ECG within 10 minutes of arrival", "satisfiedBy": ["ecg_12lead"], "deadlineSec": 600, "points": 15,
+      "teaching": "Every patient with suspected ACS needs a 12-lead ECG read within 10 minutes of first contact." },
+    { "id": "ca_aspirin", "label": "Aspirin given", "satisfiedBy": ["aspirin"], "deadlineSec": 1200, "points": 10,
+      "teaching": "Give aspirin loading early to every STEMI patient without a true allergy." },
+    { "id": "ca_rv", "label": "Right-sided leads recorded in inferior STEMI", "satisfiedBy": ["ecg_right_sided"], "points": 10,
+      "teaching": "Inferior STEMI with ST elevation in V1 or a raised JVP with clear lungs suggests RV infarction. Record V4R." },
+    { "id": "ca_no_nitrate", "label": "Nitrates avoided in RV infarction", "satisfiedBy": ["gtn_sl"], "avoid": true, "points": 10,
+      "teaching": "RV infarction is preload-dependent. Avoid nitrates and diuretics; give careful fluids if hypotensive." },
+    { "id": "ca_call_pci", "label": "PCI centre contacted early to decide the reperfusion strategy", "satisfiedBy": ["arrange_transfer_pci"], "points": 10,
+      "teaching": "Decide the reperfusion strategy from the expected time to PCI. If PCI is not possible within 120 minutes of diagnosis, give fibrinolysis." },
+    { "id": "ca_ci_screen", "label": "Fibrinolysis contraindications screened", "satisfiedBy": ["ask:hx_lysis_ci"], "points": 10,
+      "teaching": "Before lysis, ask about prior intracranial bleeding, recent ischaemic stroke, active bleeding, recent major surgery or head trauma, and suspected aortic dissection." },
+    { "id": "ca_lysis", "label": "Tenecteplase within 10 minutes of STEMI diagnosis", "satisfiedBy": ["tenecteplase"], "deadlineSec": 600, "deadlineAfterAction": "ecg_12lead", "points": 20,
+      "teaching": "When fibrinolysis is chosen, give the bolus within 10 minutes of diagnosis. Dose by weight; use half dose at age 75 or over." },
+    { "id": "ca_p2y12", "label": "Clopidogrel with fibrinolysis", "satisfiedBy": ["clopidogrel"], "points": 5,
+      "teaching": "Clopidogrel 300 mg (age 75 or under) is the P2Y12 inhibitor to use with fibrinolysis." },
+    { "id": "ca_anticoag", "label": "Anticoagulant with fibrinolysis", "satisfiedBy": ["enoxaparin", "ufh"], "points": 5,
+      "teaching": "Give an anticoagulant with lysis: enoxaparin is preferred over UFH." },
+    { "id": "ca_pacing", "label": "Pacing for unstable complete heart block", "satisfiedBy": ["transcutaneous_pacing"], "appliesIfVisited": "complete_heart_block", "points": 10,
+      "teaching": "Atropine rarely works in infranodal block. Pace early when the patient is unstable." },
+    { "id": "ca_defib", "label": "Immediate defibrillation for VF", "satisfiedBy": ["defibrillate"], "appliesIfVisited": "vf_arrest", "points": 10,
+      "teaching": "VF needs immediate defibrillation and high-quality CPR. Every minute of delay lowers survival." }
+  ],
+
+  "debrief": {
+    "diagnosis": "Acute inferior STEMI with right ventricular involvement",
+    "summary": "A 56-year-old diabetic smoker with 2 hours of ischaemic pain. Inferior ST elevation with ST elevation in V1 and V4R, raised JVP and clear lungs point to RV infarction. With no cath lab and about 3 hours to PCI, fibrinolysis was the reperfusion strategy.",
+    "disposition": "After fibrinolysis, transfer to a PCI-capable centre: angiography within 2–24 hours if lysis succeeds, or immediate rescue PCI if ST resolution is under 50% at 60–90 minutes, or there is ongoing ischaemia, haemodynamic or electrical instability.",
+    "teachingPoints": [
+      "Time is muscle: 12-lead ECG within 10 minutes, decide the reperfusion strategy right away.",
+      "If PCI cannot be done within 120 minutes of diagnosis and symptoms began within 12 hours, give fibrinolysis without delay.",
+      "In inferior STEMI, record right-sided leads before nitrates. Treat RV infarct hypotension with fluids, not nitrates.",
+      "Tenecteplase is weight-based (30–50 mg). Use half dose at age 75 or over.",
+      "Adjuncts with lysis: aspirin, clopidogrel 300 mg (age 75 or under), and enoxaparin (preferred) or UFH.",
+      "Routine oxygen is not recommended when SpO₂ is 90% or above.",
+      "Inferior MI can cause AV block. Atropine helps nodal block; pace unstable infranodal block."
+    ]
+  }
+}
