@@ -1,0 +1,935 @@
+1. REPLACE WHOLE FILE: app/src/main/java/com/example/engine/CaseEngine.kt
+kotlin
+package com.example.engine
+
+// ============================================================================
+// ER SIM CASE ENGINE V1 — deterministic reducer
+//   session' = CaseEngine.reduce(case, session, event)
+// No clocks, no randomness, no Android: same inputs -> same outputs, so every
+// pathway is unit-testable and replayable (instructor review, voice, XR).
+// ============================================================================
+
+sealed interface SimEvent {
+    /** Advance simulated time. UI ticks this from a timer; tests jump directly. */
+    data class Advance(val seconds: Int) : SimEvent
+    data class Perform(val actionId: String) : SimEvent
+    data class Order(val investigationId: String) : SimEvent
+    data class Ask(val historyId: String) : SimEvent
+    data class Examine(val region: String) : SimEvent
+}
+
+enum class LogKind { INFO, ACTION, REJECTED, NOTE, HARM, ORDERED, RESULT, HISTORY, EXAM, STATE_CHANGE, END }
+
+data class LogEntry(val atSec: Int, val kind: LogKind, val text: String, val refId: String? = null)
+
+data class PendingResult(val investigationId: String, val orderedAtSec: Int, val readyAtSec: Int, val result: String)
+
+data class CaseSession(
+    val caseId: String,
+    val caseVersion: Int,                                // a saved session only replays on the same case version
+    val elapsedSec: Int = 0,
+    val stateId: String,
+    val stateEnteredAtSec: Int = 0,
+    val visitedStates: List<String>,
+    val performed: Map<String, Int> = emptyMap(),        // first time each action/order/ask happened ("ask:<id>" for history)
+    val performedCount: Map<String, Int> = emptyMap(),
+    val pending: List<PendingResult> = emptyList(),
+    val results: Map<String, String> = emptyMap(),       // investigationId -> latest delivered result
+    val examined: Set<String> = emptySet(),
+    val harms: List<LogEntry> = emptyList(),
+    val log: List<LogEntry> = emptyList(),
+    val ended: Boolean = false,
+    val outcome: String? = null
+)
+
+object CaseEngine {
+
+    fun start(def: CaseDefinition): CaseSession {
+        val s0 = def.states.getValue(def.initialStateId)
+        val opening = listOfNotNull(
+            LogEntry(0, LogKind.INFO, "${def.patient.name}, ${def.patient.ageYears} y. ${def.chiefComplaint}"),
+            s0.patientSays?.let { LogEntry(0, LogKind.HISTORY, it) }
+        )
+        return CaseSession(
+            caseId = def.meta.caseId,
+            caseVersion = def.meta.version,
+            stateId = s0.id,
+            visitedStates = listOf(s0.id),
+            log = opening
+        )
+    }
+
+    fun currentState(def: CaseDefinition, s: CaseSession): PatientStateDef = def.states.getValue(s.stateId)
+
+    fun reduce(def: CaseDefinition, s: CaseSession, e: SimEvent): CaseSession {
+        require(s.caseId == def.meta.caseId && s.caseVersion == def.meta.version) {
+            "Session ${s.caseId} v${s.caseVersion} does not belong to ${def.meta.caseId} v${def.meta.version}"
+        }
+        require(s.stateId in def.states) { "Unknown saved patient state ${s.stateId}" }
+        if (s.ended) return s
+        return when (e) {
+            is SimEvent.Advance -> advance(def, s, e.seconds)
+            is SimEvent.Perform -> perform(def, s, e.actionId)
+            is SimEvent.Order -> order(def, s, e.investigationId)
+            is SimEvent.Ask -> ask(def, s, e.historyId)
+            is SimEvent.Examine -> examine(def, s, e.region)
+        }
+    }
+
+    fun reduceAll(def: CaseDefinition, s: CaseSession, events: List<SimEvent>): CaseSession =
+        events.fold(s) { acc, ev -> reduce(def, acc, ev) }
+
+    // ---------------------------------------------------------------- time
+    private fun advance(def: CaseDefinition, start: CaseSession, seconds: Int): CaseSession {
+        var s = start
+        repeat(seconds.coerceAtLeast(0)) {
+            if (s.ended) return s
+            s = s.copy(elapsedSec = s.elapsedSec + 1)
+            s = deliverResults(def, s)
+            s = applyTimeTransitions(def, s)
+        }
+        return s
+    }
+
+    private fun deliverResults(def: CaseDefinition, s: CaseSession): CaseSession {
+        val (ready, waiting) = s.pending.partition { it.readyAtSec <= s.elapsedSec }
+        if (ready.isEmpty()) return s
+        var out = s.copy(pending = waiting)
+        ready.forEach { r ->
+            val name = def.investigationsById.getValue(r.investigationId).name
+            val key = "result:${r.investigationId}"   // result available, not merely ordered
+            out = out.copy(
+                performed = if (key in out.performed) out.performed else out.performed + (key to s.elapsedSec),
+                results = out.results + (r.investigationId to r.result),
+                log = out.log + LogEntry(s.elapsedSec, LogKind.RESULT, "$name: ${r.result}", r.investigationId)
+            )
+        }
+        return out
+    }
+
+    private fun applyTimeTransitions(def: CaseDefinition, s: CaseSession): CaseSession {
+        val t = def.transitions.firstOrNull { t ->
+            appliesFrom(t, s) && when (val trig = t.trigger) {
+                is Trigger.AfterCaseSeconds -> s.elapsedSec >= trig.seconds
+                is Trigger.AfterSecondsInState -> s.elapsedSec - s.stateEnteredAtSec >= trig.seconds
+                is Trigger.OnAction -> false
+            } && guardsPass(def, s, t)
+        } ?: return s
+        return enterState(def, s, t)
+    }
+
+    // ---------------------------------------------------------------- actions
+    private fun perform(def: CaseDefinition, s: CaseSession, actionId: String): CaseSession {
+        val a = def.interventionsById[actionId]
+            ?: return s.withLog(LogKind.REJECTED, "Unknown action '$actionId'", actionId)
+        if (!a.repeatable && actionId in s.performed) {
+            return s.withLog(LogKind.REJECTED, "${a.name} already done.", actionId)
+        }
+        if (!a.requires.all { holds(def, s, it) }) {
+            return s.withLog(LogKind.REJECTED, a.requiresMessage ?: "${a.name}: prerequisites not met.", actionId)
+        }
+
+        val doseText = listOfNotNull(a.dose, a.route).joinToString(" ")
+        var out = s.markDone(actionId).withLog(LogKind.ACTION, a.name + if (doseText.isNotEmpty()) " — $doseText" else "", actionId)
+
+        // Safety checks use the state BEFORE the action takes effect.
+        // Process harm: a required safety check was skipped (e.g. lysis without contraindication screening).
+        if (a.unsafeUnless.isNotEmpty() && !a.unsafeUnless.all { holds(def, s, it) }) {
+            val harm = LogEntry(s.elapsedSec, LogKind.HARM, a.unsafeReason ?: "${a.name} given without the required safety checks.", actionId)
+            out = out.copy(harms = out.harms + harm, log = out.log + harm)
+        }
+        // Patient harm: the action itself is contraindicated now.
+        if (a.contraindicatedWhen.any { holds(def, s, it) }) {
+            val harm = LogEntry(s.elapsedSec, LogKind.HARM, a.contraindicationReason ?: "${a.name} was contraindicated.", actionId)
+            out = out.copy(harms = out.harms + harm, log = out.log + harm)
+        } else if (a.notIndicatedWhen.any { holds(def, s, it) }) {
+            out = out.withLog(LogKind.NOTE, a.notIndicatedReason ?: "${a.name} not indicated.", actionId)
+        }
+
+        (a.feedbackByState[s.stateId] ?: a.feedbackByState["*"])?.let {
+            out = out.withLog(LogKind.INFO, it, actionId)
+        }
+
+        val t = def.transitions.firstOrNull { t ->
+            appliesFrom(t, s) && (t.trigger as? Trigger.OnAction)?.actionId == actionId && guardsPass(def, out, t)
+        }
+        return if (t != null) enterState(def, out, t) else out
+    }
+
+    private fun order(def: CaseDefinition, s: CaseSession, id: String): CaseSession {
+        val inv = def.investigationsById[id]
+            ?: return s.withLog(LogKind.REJECTED, "Unknown investigation '$id'", id)
+        if (s.pending.any { it.investigationId == id }) {
+            return s.withLog(LogKind.REJECTED, "${inv.name} already pending.", id)
+        }
+        // Result reflects the patient at the moment the test is done
+        val result = inv.resultsByState[s.stateId] ?: inv.resultsByState.getValue("*")
+        var out = s.markDone(id).withLog(LogKind.ORDERED, "${inv.name} ordered", id)
+        out = out.copy(pending = out.pending + PendingResult(id, s.elapsedSec, s.elapsedSec + inv.turnaroundSec, result))
+        out = if (inv.turnaroundSec == 0) deliverResults(def, out) else out
+        val t = def.transitions.firstOrNull { t ->
+            appliesFrom(t, s) && (t.trigger as? Trigger.OnAction)?.actionId == id && guardsPass(def, out, t)
+        }
+        return if (t != null) enterState(def, out, t) else out
+    }
+
+    private fun ask(def: CaseDefinition, s: CaseSession, id: String): CaseSession {
+        val h = def.historyById[id] ?: return s.withLog(LogKind.REJECTED, "Unknown question '$id'", id)
+        val who = if (h.answeredBy == "patient") def.patient.name.substringBefore(" ") else h.answeredBy
+        return s.markDone("ask:$id").withLog(LogKind.HISTORY, "${h.topic} — $who: \"${h.answer}\"", id)
+    }
+
+    private fun examine(def: CaseDefinition, s: CaseSession, region: String): CaseSession {
+        if (region !in CaseParser.EXAM_REGIONS) return s.withLog(LogKind.REJECTED, "Unknown exam region '$region'", region)
+        val finding = currentState(def, s).exam[region] ?: def.baselineExam.getValue(region)
+        return s.copy(examined = s.examined + region).withLog(LogKind.EXAM, "$region: $finding", region)
+    }
+
+    // ---------------------------------------------------------------- transitions
+    private fun appliesFrom(t: TransitionDef, s: CaseSession) = "*" in t.from || s.stateId in t.from
+
+    private fun guardsPass(def: CaseDefinition, s: CaseSession, t: TransitionDef) =
+        t.whenAll.all { holds(def, s, it) } && t.unlessAny.none { holds(def, s, it) }
+
+    private fun enterState(def: CaseDefinition, s: CaseSession, t: TransitionDef): CaseSession {
+        val next = def.states.getValue(t.to)
+        var out = s.copy(
+            stateId = next.id,
+            stateEnteredAtSec = s.elapsedSec,
+            visitedStates = s.visitedStates + next.id
+        )
+        out = out.withLog(LogKind.STATE_CHANGE, t.message.ifBlank { next.label }, t.id)
+        next.patientSays?.let { out = out.withLog(LogKind.HISTORY, it) }
+        if (next.terminal) {
+            out = out.copy(ended = true, outcome = next.outcome ?: next.label)
+                .withLog(LogKind.END, "Case ended: ${next.outcome ?: next.label}")
+        }
+        return out
+    }
+
+    // ---------------------------------------------------------------- conditions
+    fun holds(def: CaseDefinition, s: CaseSession, c: Condition): Boolean {
+        val v = def.states.getValue(s.stateId).vitals
+        return when (c) {
+            Condition.Always -> true
+            is Condition.Fact -> c.id in def.facts
+            is Condition.InState -> s.stateId == c.id
+            is Condition.NotInState -> s.stateId != c.id
+            is Condition.Done -> c.actionId in s.performed
+            is Condition.NotDone -> c.actionId !in s.performed
+            is Condition.ResultReady -> "result:${c.investigationId}" in s.performed
+            is Condition.Asked -> "ask:${c.historyId}" in s.performed
+            is Condition.VitalCompare -> {
+                val x = when (c.field) { "hr" -> v.hr; "sbp" -> v.sbp; "dbp" -> v.dbp; "rr" -> v.rr; else -> v.spo2 }
+                when (c.op) { "<" -> x < c.value; "<=" -> x <= c.value; ">" -> x > c.value; else -> x >= c.value }
+            }
+        }
+    }
+
+    private fun CaseSession.markDone(id: String) = copy(
+        performed = if (id in performed) performed else performed + (id to elapsedSec),
+        performedCount = performedCount + (id to ((performedCount[id] ?: 0) + 1))
+    )
+
+    private fun CaseSession.withLog(kind: LogKind, text: String, ref: String? = null) =
+        copy(log = log + LogEntry(elapsedSec, kind, text, ref))
+
+    // ---------------------------------------------------------------- debrief
+    fun debrief(def: CaseDefinition, s: CaseSession): DebriefReport {
+        val items = def.criticalActions
+            .filter { it.appliesIfVisited == null || it.appliesIfVisited in s.visitedStates }
+            .map { ca ->
+                val doneAt = ca.satisfiedByAny.mapNotNull { s.performed[it] }.minOrNull()
+                if (ca.avoid) {
+                    CriticalActionResult(ca, met = doneAt == null, doneAtSec = doneAt, late = false)
+                } else {
+                    val anchor = ca.deadlineAfterAction?.let { s.performed[it] } ?: 0
+                    val deadline = ca.deadlineSec?.let { anchor + it }
+                    val late = doneAt != null && deadline != null && doneAt > deadline
+                    CriticalActionResult(ca, met = doneAt != null && !late, doneAtSec = doneAt, late = late)
+                }
+            }
+        val possible = items.sumOf { it.def.points }
+        val earned = items.filter { it.met }.sumOf { it.def.points }
+        val raw = if (possible == 0) 0 else (earned * 100) / possible
+        // Harm stays visible in the score: each harm event costs HARM_PENALTY points.
+        val afterHarm = (raw - s.harms.size * HARM_PENALTY).coerceAtLeast(0)
+        // A bad outcome (e.g. death) caps the score below one star, however many boxes were ticked.
+        val badOutcome = s.ended && def.states[s.stateId]?.badOutcome == true
+        val final = if (badOutcome) afterHarm.coerceAtMost(BAD_OUTCOME_CAP) else afterHarm
+        return DebriefReport(
+            caseId = def.meta.caseId,
+            outcome = s.outcome ?: "Case in progress at ${formatClock(s.elapsedSec)}",
+            diagnosis = def.debrief.diagnosis,
+            summary = def.debrief.summary,
+            disposition = def.debrief.disposition,
+            criticalActions = items,
+            harms = s.harms,
+            scorePercent = final,
+            teachingPoints = def.debrief.teachingPoints,
+            elapsedSec = s.elapsedSec,
+            actionsPercent = raw,
+            harmPenalty = raw - afterHarm,
+            badOutcome = badOutcome
+        )
+    }
+
+    const val HARM_PENALTY = 10
+    const val BAD_OUTCOME_CAP = 39
+
+    fun formatClock(sec: Int) = "%02d:%02d".format(sec / 60, sec % 60)
+}
+
+data class CriticalActionResult(val def: CriticalActionDef, val met: Boolean, val doneAtSec: Int?, val late: Boolean)
+
+data class DebriefReport(
+    val caseId: String,
+    val outcome: String,
+    val diagnosis: String,
+    val summary: String,
+    val disposition: String,
+    val criticalActions: List<CriticalActionResult>,
+    val harms: List<LogEntry>,
+    val scorePercent: Int,
+    val teachingPoints: List<String>,
+    val elapsedSec: Int,
+    val actionsPercent: Int = scorePercent,   // critical actions only, before penalties
+    val harmPenalty: Int = 0,                 // points removed for harm events
+    val badOutcome: Boolean = false           // score capped because the patient died / bad outcome
+)
+2. EDIT: engine/CaseModel.kt (11 find/replace edits)
+
+2a. PatientStateDef: find
+
+kotlin
+    val terminal: Boolean,
+    val outcome: String?
+)
+
+replace with
+
+kotlin
+    val terminal: Boolean,
+    val outcome: String?,
+    val badOutcome: Boolean = false            // e.g. death: caps the debrief score
+)
+
+2b. InterventionDef: find
+
+kotlin
+    val notIndicatedReason: String?,
+    val feedbackByState: Map<String, String>  // stateId or "*" -> response text
+)
+
+replace with
+
+kotlin
+    val notIndicatedReason: String?,
+    val feedbackByState: Map<String, String>, // stateId or "*" -> response text
+    val unsafeUnless: List<Condition> = emptyList(), // safety checks: any missing -> performed, logged as process HARM
+    val unsafeReason: String? = null
+)
+
+2c. Conditions. Find
+
+kotlin
+    data class NotDone(val actionId: String) : Condition
+
+replace with
+
+kotlin
+    data class NotDone(val actionId: String) : Condition
+    data class ResultReady(val investigationId: String) : Condition
+    data class Asked(val historyId: String) : Condition
+
+2d. Find
+
+kotlin
+                s.startsWith("notDone:") -> NotDone(s.removePrefix("notDone:"))
+
+replace with
+
+kotlin
+                s.startsWith("notDone:") -> NotDone(s.removePrefix("notDone:"))
+                s.startsWith("result:") -> ResultReady(s.removePrefix("result:"))
+                s.startsWith("asked:") -> Asked(s.removePrefix("asked:"))
+
+2e. Parse states. Find
+
+kotlin
+                    terminal = s.boolOpt("terminal") ?: false,
+                    outcome = s.strOpt("outcome")
+                )
+
+replace with
+
+kotlin
+                    terminal = s.boolOpt("terminal") ?: false,
+                    outcome = s.strOpt("outcome"),
+                    badOutcome = s.boolOpt("badOutcome") ?: false
+                )
+
+2f. Parse interventions. Find
+
+kotlin
+                    feedbackByState = a.strMapOpt("feedbackByState")
+                )
+
+replace with
+
+kotlin
+                    feedbackByState = a.strMapOpt("feedbackByState"),
+                    unsafeUnless = a.condList("unsafeUnless"),
+                    unsafeReason = a.strOpt("unsafeReason")
+                )
+
+2g. Validator: new conditions. Find
+
+kotlin
+                is Condition.Fact -> Unit // facts may be absent
+
+replace with
+
+kotlin
+                is Condition.ResultReady -> if (c.investigationId !in def.investigations.map { it.id }) errors += "$where: unknown investigation ${c.investigationId}"
+                is Condition.Asked -> if (c.historyId !in historyIds) errors += "$where: unknown history item ${c.historyId}"
+                is Condition.Fact -> Unit // facts may be absent
+
+(Keep the rest of that line after Unit as it is.)
+
+2h. Find
+
+kotlin
+            (a.requires + a.contraindicatedWhen + a.notIndicatedWhen).forEach { checkCond("Intervention ${a.id}", it) }
+
+replace with
+
+kotlin
+            (a.requires + a.contraindicatedWhen + a.notIndicatedWhen + a.unsafeUnless).forEach { checkCond("Intervention ${a.id}", it) }
+
+2i. Find
+
+kotlin
+                val ok = if (ref.startsWith("ask:")) ref.removePrefix("ask:") in historyIds else ref in actionIds
+
+replace with
+
+kotlin
+                val ok = when {
+                    ref.startsWith("ask:") -> ref.removePrefix("ask:") in historyIds
+                    ref.startsWith("result:") -> ref.removePrefix("result:") in def.investigations.map { it.id }
+                    else -> ref in actionIds
+                }
+
+2j. Find
+
+kotlin
+            c.deadlineAfterAction?.let { if (it !in actionIds) errors += "Critical action ${c.id}: unknown deadlineAfterAction $it" }
+
+replace with
+
+kotlin
+            c.deadlineAfterAction?.let {
+                val ok = if (it.startsWith("result:")) it.removePrefix("result:") in def.investigations.map { iv -> iv.id } else it in actionIds
+                if (!ok) errors += "Critical action ${c.id}: unknown deadlineAfterAction $it"
+            }
+
+2k. Header comment (optional). In the CONDITIONS comment block, add "result:<investigationId>" and "asked:<historyId>" to the list.
+
+3. NEW FILE: app/src/main/java/com/example/engine/SessionCodec.kt
+kotlin
+package com.example.engine
+
+/**
+ * Save/resume for a case in progress.
+ * The engine is deterministic, so a session is stored as the list of player events
+ * and rebuilt by replaying them: no clinical state is ever serialised by hand.
+ * Format: "A:60|P:aspirin|O:ecg_12lead|K:hx_onset|E:CARD" (consecutive waits merged).
+ */
+object SessionCodec {
+
+    fun encode(events: List<SimEvent>): String =
+        compact(events).joinToString("|") { e ->
+            when (e) {
+                is SimEvent.Advance -> "A:${e.seconds}"
+                is SimEvent.Perform -> "P:${e.actionId}"
+                is SimEvent.Order -> "O:${e.investigationId}"
+                is SimEvent.Ask -> "K:${e.historyId}"
+                is SimEvent.Examine -> "E:${e.region}"
+            }
+        }
+
+    /** Returns null if the text is not a valid encoding (corrupt or from an older format). */
+    fun decode(text: String): List<SimEvent>? {
+        if (text.isBlank()) return emptyList()
+        return text.split("|").map { token ->
+            val type = token.substringBefore(":", "")
+            val arg = token.substringAfter(":", "")
+            if (arg.isEmpty()) return null
+            when (type) {
+                "A" -> SimEvent.Advance(arg.toIntOrNull()?.takeIf { it >= 0 } ?: return null)
+                "P" -> SimEvent.Perform(arg)
+                "O" -> SimEvent.Order(arg)
+                "K" -> SimEvent.Ask(arg)
+                "E" -> SimEvent.Examine(arg)
+                else -> return null
+            }
+        }
+    }
+
+    /** Merges runs of Advance(1) from the clock into one Advance(n). Replay result is identical. */
+    fun compact(events: List<SimEvent>): List<SimEvent> {
+        val out = ArrayList<SimEvent>(events.size)
+        for (e in events) {
+            val last = out.lastOrNull()
+            if (e is SimEvent.Advance && last is SimEvent.Advance) out[out.lastIndex] = SimEvent.Advance(last.seconds + e.seconds)
+            else out.add(e)
+        }
+        return out
+    }
+
+    /** Rebuilds a session, or null if any event no longer fits this case version. */
+    fun restore(def: CaseDefinition, events: List<SimEvent>): CaseSession? = runCatching {
+        CaseEngine.reduceAll(def, CaseEngine.start(def), events)
+    }.getOrNull()
+}
+4. EDIT: assets/cases/ersim_stemi_001.json (→ version 2)
+
+4a. "version": 1, → "version": 2, (in meta)
+
+4b. New state. Find {\n "id": "rosc", and put this before it:
+
+json
+    {
+      "id": "post_shock_cpr",
+      "label": "Shock delivered, CPR in progress",
+      "vitals": { "hr": 0, "sbp": 0, "dbp": 0, "rr": 0, "spo2": 0, "tempC": 36.9, "rhythm": "CPR in progress (rhythm check at 2 minutes)" },
+      "appearance": "Unresponsive. Chest compressions in progress.",
+      "exam": {
+        "GENERAL": "Unresponsive. CPR in progress.",
+        "CARD": "No pulse check until the 2-minute rhythm check.",
+        "NEURO": "GCS 3."
+      },
+      "terminal": false
+    },
+
+4c. In the death state, add "badOutcome": true, after "terminal": true,.
+
+4d. Tenecteplase. Replace its requires and requiresMessage lines with:
+
+json
+      "requires": ["result:ecg_12lead", "vitals.sbp>0"],
+      "requiresMessage": "Fibrinolysis needs the ECG result showing STEMI (ordering it is not enough), and cannot be given during cardiac arrest.",
+      "unsafeUnless": ["asked:hx_lysis_ci"],
+      "unsafeReason": "Tenecteplase given without screening for contraindications (bleeding, stroke, recent surgery or trauma, suspected dissection). It worked this time, but this is an unsafe process.",
+
+4e. CPR. Replace its notIndicatedWhen and feedbackByState with:
+
+json
+      "notIndicatedWhen": ["vitals.sbp>0"],
+      "notIndicatedReason": "The patient has a pulse. CPR is not indicated.",
+      "feedbackByState": {
+        "vf_arrest": "CPR in progress. Defibrillate as soon as the pads are charged.",
+        "post_shock_cpr": "Compressions continuing. Rhythm check at 2 minutes."
+      } },
+
+4f. Defibrillate. Replace its contraindicatedWhen and contraindicationReason lines with:
+
+json
+      "contraindicatedWhen": ["vitals.sbp>0"],
+      "contraindicationReason": "Unsynchronised shock given to a patient with a pulse. This can trigger VF.",
+      "feedbackByState": { "post_shock_cpr": "Shock delivered before the rhythm check. Keep compressing; check rhythm at 2 minutes." } },
+
+4g. Arrest cycle. Replace the whole t_defib transition with:
+
+json
+    { "id": "t_defib", "from": ["vf_arrest"], "to": "post_shock_cpr",
+      "trigger": { "onAction": "defibrillate" },
+      "message": "Shock delivered. Resume CPR immediately for 2 minutes, then check the rhythm." },
+
+    { "id": "t_rosc", "from": ["post_shock_cpr"], "to": "rosc",
+      "trigger": { "afterSecondsInState": 120 }, "when": ["done:cpr"],
+      "message": "Rhythm check after 2 minutes of CPR: organised rhythm with a pulse. ROSC." },
+
+    { "id": "t_refibrillates", "from": ["post_shock_cpr"], "to": "vf_arrest",
+      "trigger": { "afterSecondsInState": 120 }, "unless": ["done:cpr"],
+      "message": "Rhythm check: still VF. No CPR was given after the shock." },
+
+4h. Lysis deadline from the result. In ca_lysis, change the label to "Tenecteplase within 10 minutes of the ECG diagnosis" and change "deadlineAfterAction": "ecg_12lead" to "deadlineAfterAction": "result:ecg_12lead".
+
+4i. CPR critical action. Put this right before the ca_defib line:
+
+json
+    { "id": "ca_cpr", "label": "High-quality CPR during arrest", "satisfiedBy": ["cpr"], "appliesIfVisited": "vf_arrest", "points": 10,
+      "teaching": "Start compressions immediately and resume them straight after every shock for 2 minutes before the rhythm check." },
+5. OP case
+
+When you add ersim_op_001.json from my previous message, also add "badOutcome": true, after "terminal": true, in its death state.
+
+6. REPLACE WHOLE FILE: ui/game/GameViewModel.kt
+kotlin
+package com.example.ui.game
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.engine.CaseDefinition
+import com.example.engine.CaseEngine
+import com.example.engine.CaseLibrary
+import com.example.engine.CaseSession
+import com.example.engine.DebriefReport
+import com.example.engine.GameRules
+import com.example.engine.LogEntry
+import com.example.engine.LogKind
+import com.example.engine.SessionCodec
+import com.example.engine.SimEvent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// ============================================================================
+// GAME VIEWMODEL — runs one engine-driven case in real time.
+// 1 real second = 1 simulated second while playing. "Wait" jumps time.
+// All clinical behaviour comes from CaseEngine + the case JSON.
+// ============================================================================
+
+data class GameUiState(
+    val cases: List<CaseDefinition> = emptyList(),
+    val loadError: String? = null,
+    val def: CaseDefinition? = null,
+    val session: CaseSession? = null,
+    val paused: Boolean = false,
+    val nurseMessage: String? = null,
+    val feedback: LogEntry? = null,
+    val debrief: DebriefReport? = null,
+    val resultRecorded: Boolean = false
+) {
+    val isPlaying: Boolean get() = def != null && session != null
+}
+
+class GameViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _state = MutableStateFlow(GameUiState())
+    val state: StateFlow<GameUiState> = _state.asStateFlow()
+
+    private var ticker: Job? = null
+    private var backgrounded = false
+    private var overlayOpen = false
+
+    // Save/resume: the session is the replay of these events (engine is deterministic)
+    private val events = ArrayList<SimEvent>()
+    private val savePrefs = application.getSharedPreferences("ersim_game_session", android.content.Context.MODE_PRIVATE)
+
+    init {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { CaseLibrary.loadAll(getApplication()) }
+            }
+            val cases = result.getOrDefault(emptyList())
+            val restored = restoreSavedSession(cases)
+            // One update, so the UI never sees "cases loaded but no session" during a restore
+            _state.update {
+                val base = it.copy(cases = cases, loadError = result.exceptionOrNull()?.message)
+                if (restored == null) base else base.copy(
+                    def = restored.first, session = restored.second, paused = true, debrief = null,
+                    resultRecorded = false, feedback = null,
+                    nurseMessage = "Case restored where you left it. Tap ▶ to resume the clock."
+                )
+            }
+            if (restored != null) startTicker()
+        }
+    }
+
+    /** Rebuilds an unfinished case after the app was closed (resumes paused), or null. */
+    private fun restoreSavedSession(cases: List<CaseDefinition>): Pair<CaseDefinition, CaseSession>? {
+        val caseId = savePrefs.getString(K_CASE, null) ?: return null
+        val version = savePrefs.getInt(K_VERSION, -1)
+        val def = cases.firstOrNull { it.meta.caseId == caseId }
+        val saved = SessionCodec.decode(savePrefs.getString(K_EVENTS, "") ?: "")
+        // A changed case version means old saves no longer replay against the same medicine
+        if (def == null || def.meta.version != version || saved == null) { clearSave(); return null }
+        val session = SessionCodec.restore(def, saved)
+        if (session == null || session.ended) { clearSave(); return null }
+        events.clear(); events.addAll(saved)
+        return def to session
+    }
+
+    private fun save(def: CaseDefinition) {
+        savePrefs.edit()
+            .putString(K_CASE, def.meta.caseId)
+            .putInt(K_VERSION, def.meta.version)
+            .putString(K_EVENTS, SessionCodec.encode(events))
+            .apply()
+    }
+
+    private fun clearSave() {
+        savePrefs.edit().clear().apply()
+    }
+
+    fun startCase(caseId: String) {
+        val def = _state.value.cases.firstOrNull { it.meta.caseId == caseId } ?: return
+        events.clear()
+        clearSave()
+        _state.update {
+            it.copy(def = def, session = CaseEngine.start(def), paused = false, nurseMessage = null, feedback = null, debrief = null, resultRecorded = false)
+        }
+        startTicker()
+    }
+
+    fun replay() {
+        _state.value.def?.let { startCase(it.meta.caseId) }
+    }
+
+    fun exitGame() {
+        ticker?.cancel()
+        events.clear()
+        clearSave()
+        _state.update { it.copy(def = null, session = null, debrief = null, nurseMessage = null, feedback = null, paused = false) }
+    }
+
+    fun ask(historyId: String) = dispatch(SimEvent.Ask(historyId))
+    fun examine(region: String) = dispatch(SimEvent.Examine(region))
+    fun order(investigationId: String) = dispatch(SimEvent.Order(investigationId))
+    fun perform(actionId: String) = dispatch(SimEvent.Perform(actionId))
+    fun wait(seconds: Int) = dispatch(SimEvent.Advance(seconds))
+
+    /** Debrief result saved to progress (guards against double-counting on recomposition). */
+    fun markResultRecorded() = _state.update { it.copy(resultRecorded = true) }
+
+    fun togglePause() = _state.update { it.copy(paused = !it.paused) }
+    fun dismissNurse() = _state.update { it.copy(nurseMessage = null) }
+    fun dismissFeedback() = _state.update { it.copy(feedback = null) }
+
+    /** Called by the screen on app stop/start so the clock never runs unseen. */
+    fun setBackgrounded(value: Boolean) {
+        backgrounded = value
+    }
+
+    /** Guide or tutorial on screen: the clock waits for the player. */
+    fun setOverlayOpen(value: Boolean) {
+        overlayOpen = value
+    }
+
+    /** Player ends the case early: debrief on what was done so far. */
+    fun endCase() {
+        val st = _state.value
+        val def = st.def ?: return
+        val s = st.session ?: return
+        ticker?.cancel()
+        clearSave()
+        _state.update { it.copy(debrief = CaseEngine.debrief(def, s)) }
+    }
+
+    private fun dispatch(event: SimEvent, fromClock: Boolean = false) {
+        val st = _state.value
+        val def = st.def ?: return
+        val prev = st.session ?: return
+        if (st.debrief != null) return
+        // Pause means pause: no orders, treatments or Wait while the clock is stopped
+        if (!fromClock && (st.paused || overlayOpen)) {
+            _state.update {
+                it.copy(feedback = LogEntry(prev.elapsedSec, LogKind.NOTE, "Paused. Tap ▶ to resume the clock before acting."))
+            }
+            return
+        }
+        val next = CaseEngine.reduce(def, prev, event)
+        events += event
+        if (next.ended) clearSave() else save(def)
+        val nurse = GameRules.nurseCallout(def, prev, next)
+        val fb = if (event is SimEvent.Advance) null else GameRules.feedbackFor(prev, next)
+        _state.update {
+            it.copy(
+                session = next,
+                nurseMessage = nurse ?: it.nurseMessage,
+                feedback = fb ?: it.feedback,
+                debrief = if (next.ended) CaseEngine.debrief(def, next) else null
+            )
+        }
+        if (next.ended) ticker?.cancel()
+    }
+
+    private fun startTicker() {
+        ticker?.cancel()
+        ticker = viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                val st = _state.value
+                if (!st.paused && !backgrounded && !overlayOpen && st.debrief == null) dispatch(SimEvent.Advance(1), fromClock = true)
+            }
+        }
+    }
+
+    private companion object {
+        const val K_CASE = "case_id"
+        const val K_VERSION = "case_version"
+        const val K_EVENTS = "events"
+    }
+
+    override fun onCleared() {
+        ticker?.cancel()
+        super.onCleared()
+    }
+}
+7. EDIT: ui/game/GameScreen.kt (penalties in the debrief)
+
+Find:
+
+kotlin
+                Text("Time ${CaseEngine.formatClock(d.elapsedSec)}", color = ErSimTextMuted, fontSize = 12.sp)
+
+Add directly after it:
+
+kotlin
+                if (d.harmPenalty > 0 || d.badOutcome) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        buildString {
+                            append("Critical actions ${d.actionsPercent}%")
+                            if (d.harmPenalty > 0) append("  •  harm −${d.harmPenalty}")
+                            if (d.badOutcome) append("  •  patient died: score capped")
+                        },
+                        color = ErSimRed,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.testTag("debrief_penalties")
+                    )
+                }
+8. EDIT: MainActivity.kt (reopen a saved case)
+
+Find:
+
+kotlin
+    // After process death the game session is gone: fall back to Home
+
+Replace with:
+
+kotlin
+    // A case saved before the app was closed reopens straight into the game (paused)
+    LaunchedEffect(gameState.isPlaying) {
+        if (gameState.isPlaying && !inGame && !inSimulation) inGame = true
+    }
+    // No session to show (e.g. save was from an older case version): fall back to Home
+9. Tests
+
+9a. NEW FILE app/src/test/java/com/example/engine/SessionCodecTest.kt:
+
+kotlin
+package com.example.engine
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+import java.io.File
+
+class SessionCodecTest {
+
+    private val def: CaseDefinition by lazy {
+        val f = listOf("src/main/assets/cases/ersim_stemi_001.json", "app/src/main/assets/cases/ersim_stemi_001.json")
+            .map { File(it) }.first { it.exists() }
+        CaseParser.parse(f.readText())
+    }
+
+    @Test fun encodeDecode_roundTrip_andCompactsClockTicks() {
+        val events = listOf(SimEvent.Advance(1), SimEvent.Advance(1), SimEvent.Order("ecg_12lead"),
+            SimEvent.Advance(1), SimEvent.Ask("hx_onset"), SimEvent.Examine("CARD"), SimEvent.Perform("aspirin"))
+        val text = SessionCodec.encode(events)
+        assertEquals("A:2|O:ecg_12lead|A:1|K:hx_onset|E:CARD|P:aspirin", text)
+        assertEquals(SessionCodec.compact(events), SessionCodec.decode(text))
+    }
+
+    @Test fun restoredSession_equalsLiveSession() {
+        val events = ArrayList<SimEvent>()
+        repeat(70) { events += SimEvent.Advance(1) }
+        events += SimEvent.Order("ecg_12lead")
+        repeat(65) { events += SimEvent.Advance(1) }
+        events += SimEvent.Ask("hx_lysis_ci")
+        events += SimEvent.Perform("tenecteplase")
+        repeat(30) { events += SimEvent.Advance(1) }
+        val live = CaseEngine.reduceAll(def, CaseEngine.start(def), events)
+        val restored = SessionCodec.restore(def, SessionCodec.decode(SessionCodec.encode(events))!!)
+        assertEquals(live, restored)
+    }
+
+    @Test fun corruptText_returnsNull() {
+        assertNull(SessionCodec.decode("A:x|P:aspirin"))
+        assertNull(SessionCodec.decode("Z:1"))
+        assertNull(SessionCodec.decode("P:"))
+    }
+}
+
+9b. EDIT CaseEngineTest.kt. Above @Test fun lysisWithoutEcg_isRejected() { add:
+
+kotlin
+    @Test fun lysisAfterEcgOrderedButBeforeResult_isRejected() {
+        val s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(30), SimEvent.Perform("tenecteplase"))
+        assertFalse("tenecteplase" in s.performed)
+        assertEquals("presenting", s.stateId)
+        assertEquals(1, s.kinds(LogKind.REJECTED).size)
+        // once the result is back it is allowed
+        val after = CaseEngine.reduceAll(def, s, listOf(SimEvent.Advance(30), SimEvent.Perform("tenecteplase")))
+        assertEquals("post_lysis", after.stateId)
+    }
+
+    @Test fun lysisWithoutContraindicationScreening_isProcessHarm_andCostsPoints() {
+        val s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(60), SimEvent.Perform("tenecteplase"))
+        assertEquals("post_lysis", s.stateId)
+        assertEquals(1, s.harms.size)
+        val d = CaseEngine.debrief(def, s)
+        assertEquals(CaseEngine.HARM_PENALTY, d.harmPenalty)
+        assertEquals(d.actionsPercent - CaseEngine.HARM_PENALTY, d.scorePercent)
+    }
+
+    @Test fun death_capsScoreBelowOneStar() {
+        // Everything ticked except treatment of VF: patient dies
+        val s = run(
+            SimEvent.Order("ecg_12lead"), SimEvent.Ask("hx_lysis_ci"), SimEvent.Order("ecg_right_sided"),
+            SimEvent.Perform("aspirin"), SimEvent.Perform("clopidogrel"), SimEvent.Perform("enoxaparin"),
+            SimEvent.Perform("arrange_transfer_pci"), SimEvent.Advance(1500), SimEvent.Advance(240)
+        )
+        assertEquals("death", s.stateId)
+        val d = CaseEngine.debrief(def, s)
+        assertTrue(d.badOutcome)
+        assertTrue(d.scorePercent <= CaseEngine.BAD_OUTCOME_CAP)
+    }
+
+    @Test fun shockWithoutCpr_refibrillatesAtRhythmCheck() {
+        var s = run(SimEvent.Advance(1500), SimEvent.Perform("defibrillate"))
+        assertEquals("post_shock_cpr", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(120))
+        assertEquals("vf_arrest", s.stateId)
+    }
+
+Then in vf_shockGivesRosc_thenLysisStillPossible, find:
+
+kotlin
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("defibrillate"))
+        assertEquals("rosc", s.stateId)
+        assertTrue(s.harms.isEmpty())
+
+and replace with:
+
+kotlin
+        s = CaseEngine.reduceAll(def, s, listOf(SimEvent.Perform("cpr"), SimEvent.Perform("defibrillate")))
+        assertEquals("post_shock_cpr", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(119))
+        assertEquals("post_shock_cpr", s.stateId)                  // no instant ROSC
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(1))
+        assertEquals("rosc", s.stateId)
+        assertTrue(s.harms.isEmpty())
+
+After syncing, run ./gradlew :app:testDebugUnitTest. You should see 45 engine tests pass, provided the OP case and its tests from my previous message are added too.
+
+Check on the phone:
+
+Order the ECG and immediately give tenecteplase: it’s blocked.
+Wait for the result, then give lysis without asking about bleeding: you get a HARM entry and −10 in the debrief.
+Let him go into VF, then shock without CPR: back to VF at the 2-minute check.
+Pause, then tap Give: it’s blocked.
+Kill the app mid-case and reopen it: the case resumes, paused.

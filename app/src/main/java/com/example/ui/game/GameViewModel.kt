@@ -10,6 +10,8 @@ import com.example.engine.CaseSession
 import com.example.engine.DebriefReport
 import com.example.engine.GameRules
 import com.example.engine.LogEntry
+import com.example.engine.LogKind
+import com.example.engine.SessionCodec
 import com.example.engine.SimEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,22 +53,60 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var backgrounded = false
     private var overlayOpen = false
 
+    // Save/resume: the session is the replay of these events (engine is deterministic)
+    private val events = ArrayList<SimEvent>()
+    private val savePrefs = application.getSharedPreferences("ersim_game_session", android.content.Context.MODE_PRIVATE)
+
     init {
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching { CaseLibrary.loadAll(getApplication()) }
             }
+            val cases = result.getOrDefault(emptyList())
+            val restored = restoreSavedSession(cases)
+            // One update, so the UI never sees "cases loaded but no session" during a restore
             _state.update {
-                it.copy(
-                    cases = result.getOrDefault(emptyList()),
-                    loadError = result.exceptionOrNull()?.message
+                val base = it.copy(cases = cases, loadError = result.exceptionOrNull()?.message)
+                if (restored == null) base else base.copy(
+                    def = restored.first, session = restored.second, paused = true, debrief = null,
+                    resultRecorded = false, feedback = null,
+                    nurseMessage = "Case restored where you left it. Tap ▶ to resume the clock."
                 )
             }
+            if (restored != null) startTicker()
         }
+    }
+
+    /** Rebuilds an unfinished case after the app was closed (resumes paused), or null. */
+    private fun restoreSavedSession(cases: List<CaseDefinition>): Pair<CaseDefinition, CaseSession>? {
+        val caseId = savePrefs.getString(K_CASE, null) ?: return null
+        val version = savePrefs.getInt(K_VERSION, -1)
+        val def = cases.firstOrNull { it.meta.caseId == caseId }
+        val saved = SessionCodec.decode(savePrefs.getString(K_EVENTS, "") ?: "")
+        // A changed case version means old saves no longer replay against the same medicine
+        if (def == null || def.meta.version != version || saved == null) { clearSave(); return null }
+        val session = SessionCodec.restore(def, saved)
+        if (session == null || session.ended) { clearSave(); return null }
+        events.clear(); events.addAll(saved)
+        return def to session
+    }
+
+    private fun save(def: CaseDefinition) {
+        savePrefs.edit()
+            .putString(K_CASE, def.meta.caseId)
+            .putInt(K_VERSION, def.meta.version)
+            .putString(K_EVENTS, SessionCodec.encode(events))
+            .apply()
+    }
+
+    private fun clearSave() {
+        savePrefs.edit().clear().apply()
     }
 
     fun startCase(caseId: String) {
         val def = _state.value.cases.firstOrNull { it.meta.caseId == caseId } ?: return
+        events.clear()
+        clearSave()
         _state.update {
             it.copy(def = def, session = CaseEngine.start(def), paused = false, nurseMessage = null, feedback = null, debrief = null, resultRecorded = false)
         }
@@ -79,6 +119,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exitGame() {
         ticker?.cancel()
+        events.clear()
+        clearSave()
         _state.update { it.copy(def = null, session = null, debrief = null, nurseMessage = null, feedback = null, paused = false) }
     }
 
@@ -111,15 +153,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val def = st.def ?: return
         val s = st.session ?: return
         ticker?.cancel()
+        clearSave()
         _state.update { it.copy(debrief = CaseEngine.debrief(def, s)) }
     }
 
-    private fun dispatch(event: SimEvent) {
+    private fun dispatch(event: SimEvent, fromClock: Boolean = false) {
         val st = _state.value
         val def = st.def ?: return
         val prev = st.session ?: return
         if (st.debrief != null) return
+        // Pause means pause: no orders, treatments or Wait while the clock is stopped
+        if (!fromClock && (st.paused || overlayOpen)) {
+            _state.update {
+                it.copy(feedback = LogEntry(prev.elapsedSec, LogKind.NOTE, "Paused. Tap ▶ to resume the clock before acting."))
+            }
+            return
+        }
         val next = CaseEngine.reduce(def, prev, event)
+        events += event
+        if (next.ended) clearSave() else save(def)
         val nurse = GameRules.nurseCallout(def, prev, next)
         val fb = if (event is SimEvent.Advance) null else GameRules.feedbackFor(prev, next)
         _state.update {
@@ -139,9 +191,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 delay(1000)
                 val st = _state.value
-                if (!st.paused && !backgrounded && !overlayOpen && st.debrief == null) dispatch(SimEvent.Advance(1))
+                if (!st.paused && !backgrounded && !overlayOpen && st.debrief == null) dispatch(SimEvent.Advance(1), fromClock = true)
             }
         }
+    }
+
+    private companion object {
+        const val K_CASE = "case_id"
+        const val K_VERSION = "case_version"
+        const val K_EVENTS = "events"
     }
 
     override fun onCleared() {

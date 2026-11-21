@@ -54,7 +54,8 @@ data class PatientStateDef(
     val exam: Map<String, String>,     // region key (GENERAL, HEENT, PULM, CARD, ABD, SKIN, NEURO) -> finding
     val patientSays: String?,          // what the patient says/does on entering this state
     val terminal: Boolean,
-    val outcome: String?
+    val outcome: String?,
+    val badOutcome: Boolean = false            // e.g. death: caps the debrief score
 )
 
 data class HistoryItem(
@@ -85,7 +86,9 @@ data class InterventionDef(
     val contraindicationReason: String?,
     val notIndicatedWhen: List<Condition>,    // any holds -> performed, logged as NOTE
     val notIndicatedReason: String?,
-    val feedbackByState: Map<String, String>  // stateId or "*" -> response text
+    val feedbackByState: Map<String, String>, // stateId or "*" -> response text
+    val unsafeUnless: List<Condition> = emptyList(), // safety checks: any missing -> performed, logged as process HARM
+    val unsafeReason: String? = null
 )
 
 sealed interface Trigger {
@@ -147,7 +150,8 @@ data class CaseDefinition(
 // ============================================================================
 // CONDITIONS — tiny, explicit, testable DSL
 //   "always" | "fact:<id>" | "state:<id>" | "notState:<id>" |
-//   "done:<actionId>" | "notDone:<actionId>" | "vitals.<hr|sbp|dbp|rr|spo2><op><n>"  (op: < <= > >=)
+//   "done:<actionId>" | "notDone:<actionId>" | "result:<investigationId>" |
+//   "asked:<historyId>" | "vitals.<hr|sbp|dbp|rr|spo2><op><n>"  (op: < <= > >=)
 // ============================================================================
 
 sealed interface Condition {
@@ -157,6 +161,8 @@ sealed interface Condition {
     data class NotInState(val id: String) : Condition
     data class Done(val actionId: String) : Condition
     data class NotDone(val actionId: String) : Condition
+    data class ResultReady(val investigationId: String) : Condition
+    data class Asked(val historyId: String) : Condition
     data class VitalCompare(val field: String, val op: String, val value: Int) : Condition
 
     companion object {
@@ -171,6 +177,8 @@ sealed interface Condition {
                 s.startsWith("notState:") -> NotInState(s.removePrefix("notState:"))
                 s.startsWith("done:") -> Done(s.removePrefix("done:"))
                 s.startsWith("notDone:") -> NotDone(s.removePrefix("notDone:"))
+                s.startsWith("result:") -> ResultReady(s.removePrefix("result:"))
+                s.startsWith("asked:") -> Asked(s.removePrefix("asked:"))
                 else -> vitalRegex.matchEntire(s)?.let {
                     VitalCompare(it.groupValues[1], it.groupValues[2], it.groupValues[3].toInt())
                 } ?: throw CaseFormatException("Unknown condition \"$raw\"")
@@ -230,7 +238,8 @@ object CaseParser {
                     exam = s.strMapOpt("exam"),
                     patientSays = s.strOpt("patientSays"),
                     terminal = s.boolOpt("terminal") ?: false,
-                    outcome = s.strOpt("outcome")
+                    outcome = s.strOpt("outcome"),
+                    badOutcome = s.boolOpt("badOutcome") ?: false
                 )
             }.associateBy { it.id },
             baselineExam = r.strMapOpt("baselineExam"),
@@ -250,7 +259,9 @@ object CaseParser {
                     contraindicationReason = a.strOpt("contraindicationReason"),
                     notIndicatedWhen = a.condList("notIndicatedWhen"),
                     notIndicatedReason = a.strOpt("notIndicatedReason"),
-                    feedbackByState = a.strMapOpt("feedbackByState")
+                    feedbackByState = a.strMapOpt("feedbackByState"),
+                    unsafeUnless = a.condList("unsafeUnless"),
+                    unsafeReason = a.strOpt("unsafeReason")
                 )
             },
             transitions = r.objList("transitions").map { t ->
@@ -295,6 +306,8 @@ object CaseParser {
                 is Condition.NotInState -> if (c.id !in stateIds) errors += "$where: unknown state ${c.id}"
                 is Condition.Done -> if (c.actionId !in actionIds) errors += "$where: unknown action ${c.actionId}"
                 is Condition.NotDone -> if (c.actionId !in actionIds) errors += "$where: unknown action ${c.actionId}"
+                is Condition.ResultReady -> if (c.investigationId !in def.investigations.map { it.id }) errors += "$where: unknown investigation ${c.investigationId}"
+                is Condition.Asked -> if (c.historyId !in historyIds) errors += "$where: unknown history item ${c.historyId}"
                 is Condition.Fact -> Unit // facts may be absent on purpose (e.g. a contraindication this patient lacks)
                 else -> Unit
             }
@@ -309,7 +322,7 @@ object CaseParser {
             iv.resultsByState.keys.filter { it != "*" && it !in stateIds }.forEach { errors += "Investigation ${iv.id}: unknown state $it" }
         }
         def.interventions.forEach { a ->
-            (a.requires + a.contraindicatedWhen + a.notIndicatedWhen).forEach { checkCond("Intervention ${a.id}", it) }
+            (a.requires + a.contraindicatedWhen + a.notIndicatedWhen + a.unsafeUnless).forEach { checkCond("Intervention ${a.id}", it) }
             a.feedbackByState.keys.filter { it != "*" && it !in stateIds }.forEach { errors += "Intervention ${a.id}: unknown state $it" }
         }
         def.transitions.forEach { t ->
@@ -321,10 +334,17 @@ object CaseParser {
         }
         def.criticalActions.forEach { c ->
             c.satisfiedByAny.forEach { ref ->
-                val ok = if (ref.startsWith("ask:")) ref.removePrefix("ask:") in historyIds else ref in actionIds
+                val ok = when {
+                    ref.startsWith("ask:") -> ref.removePrefix("ask:") in historyIds
+                    ref.startsWith("result:") -> ref.removePrefix("result:") in def.investigations.map { it.id }
+                    else -> ref in actionIds
+                }
                 if (!ok) errors += "Critical action ${c.id}: unknown reference $ref"
             }
-            c.deadlineAfterAction?.let { if (it !in actionIds) errors += "Critical action ${c.id}: unknown deadlineAfterAction $it" }
+            c.deadlineAfterAction?.let {
+                val ok = if (it.startsWith("result:")) it.removePrefix("result:") in def.investigations.map { iv -> iv.id } else it in actionIds
+                if (!ok) errors += "Critical action ${c.id}: unknown deadlineAfterAction $it"
+            }
             c.appliesIfVisited?.let { if (it !in stateIds) errors += "Critical action ${c.id}: unknown state $it" }
         }
         if (def.states.values.none { it.terminal }) errors += "No terminal state"

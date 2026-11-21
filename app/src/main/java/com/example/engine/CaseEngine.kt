@@ -95,7 +95,9 @@ object CaseEngine {
         var out = s.copy(pending = waiting)
         ready.forEach { r ->
             val name = def.investigationsById.getValue(r.investigationId).name
+            val key = "result:${r.investigationId}"   // result available, not merely ordered
             out = out.copy(
+                performed = if (key in out.performed) out.performed else out.performed + (key to s.elapsedSec),
                 results = out.results + (r.investigationId to r.result),
                 log = out.log + LogEntry(s.elapsedSec, LogKind.RESULT, "$name: ${r.result}", r.investigationId)
             )
@@ -128,7 +130,13 @@ object CaseEngine {
         val doseText = listOfNotNull(a.dose, a.route).joinToString(" ")
         var out = s.markDone(actionId).withLog(LogKind.ACTION, a.name + if (doseText.isNotEmpty()) " — $doseText" else "", actionId)
 
-        // Safety checks use the state BEFORE the action takes effect
+        // Safety checks use the state BEFORE the action takes effect.
+        // Process harm: a required safety check was skipped (e.g. lysis without contraindication screening).
+        if (a.unsafeUnless.isNotEmpty() && !a.unsafeUnless.all { holds(def, s, it) }) {
+            val harm = LogEntry(s.elapsedSec, LogKind.HARM, a.unsafeReason ?: "${a.name} given without the required safety checks.", actionId)
+            out = out.copy(harms = out.harms + harm, log = out.log + harm)
+        }
+        // Patient harm: the action itself is contraindicated now.
         if (a.contraindicatedWhen.any { holds(def, s, it) }) {
             val harm = LogEntry(s.elapsedSec, LogKind.HARM, a.contraindicationReason ?: "${a.name} was contraindicated.", actionId)
             out = out.copy(harms = out.harms + harm, log = out.log + harm)
@@ -207,6 +215,8 @@ object CaseEngine {
             is Condition.NotInState -> s.stateId != c.id
             is Condition.Done -> c.actionId in s.performed
             is Condition.NotDone -> c.actionId !in s.performed
+            is Condition.ResultReady -> "result:${c.investigationId}" in s.performed
+            is Condition.Asked -> "ask:${c.historyId}" in s.performed
             is Condition.VitalCompare -> {
                 val x = when (c.field) { "hr" -> v.hr; "sbp" -> v.sbp; "dbp" -> v.dbp; "rr" -> v.rr; else -> v.spo2 }
                 when (c.op) { "<" -> x < c.value; "<=" -> x <= c.value; ">" -> x > c.value; else -> x >= c.value }
@@ -239,6 +249,12 @@ object CaseEngine {
             }
         val possible = items.sumOf { it.def.points }
         val earned = items.filter { it.met }.sumOf { it.def.points }
+        val raw = if (possible == 0) 0 else (earned * 100) / possible
+        // Harm stays visible in the score: each harm event costs HARM_PENALTY points.
+        val afterHarm = (raw - s.harms.size * HARM_PENALTY).coerceAtLeast(0)
+        // A bad outcome (e.g. death) caps the score below one star, however many boxes were ticked.
+        val badOutcome = s.ended && def.states[s.stateId]?.badOutcome == true
+        val final = if (badOutcome) afterHarm.coerceAtMost(BAD_OUTCOME_CAP) else afterHarm
         return DebriefReport(
             caseId = def.meta.caseId,
             outcome = s.outcome ?: "Case in progress at ${formatClock(s.elapsedSec)}",
@@ -247,11 +263,17 @@ object CaseEngine {
             disposition = def.debrief.disposition,
             criticalActions = items,
             harms = s.harms,
-            scorePercent = if (possible == 0) 0 else (earned * 100) / possible,
+            scorePercent = final,
             teachingPoints = def.debrief.teachingPoints,
-            elapsedSec = s.elapsedSec
+            elapsedSec = s.elapsedSec,
+            actionsPercent = raw,
+            harmPenalty = raw - afterHarm,
+            badOutcome = badOutcome
         )
     }
+
+    const val HARM_PENALTY = 10
+    const val BAD_OUTCOME_CAP = 39
 
     fun formatClock(sec: Int) = "%02d:%02d".format(sec / 60, sec % 60)
 }
@@ -268,5 +290,8 @@ data class DebriefReport(
     val harms: List<LogEntry>,
     val scorePercent: Int,
     val teachingPoints: List<String>,
-    val elapsedSec: Int
+    val elapsedSec: Int,
+    val actionsPercent: Int = scorePercent,   // critical actions only, before penalties
+    val harmPenalty: Int = 0,                 // points removed for harm events
+    val badOutcome: Boolean = false           // score capped because the patient died / bad outcome
 )

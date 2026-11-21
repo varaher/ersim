@@ -647,6 +647,20 @@ private fun DebriefScreen(def: CaseDefinition, d: DebriefReport, onReplay: () ->
                 }
                 Text("${d.scorePercent}%", color = if (d.scorePercent >= 70) ErSimMint else if (d.scorePercent >= 40) ErSimAmber else ErSimRed, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semanticsLabel("$stars of 3 stars, score ${d.scorePercent} percent"))
                 Text("Time ${CaseEngine.formatClock(d.elapsedSec)}", color = ErSimTextMuted, fontSize = 12.sp)
+                if (d.harmPenalty > 0 || d.badOutcome) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        buildString {
+                            append("Critical actions ${d.actionsPercent}%")
+                            if (d.harmPenalty > 0) append("  •  harm −${d.harmPenalty}")
+                            if (d.badOutcome) append("  •  patient died: score capped")
+                        },
+                        color = ErSimRed,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.testTag("debrief_penalties")
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(d.outcome, color = ErSimTextPrimary, fontSize = 14.sp, lineHeight = 19.sp)
             }

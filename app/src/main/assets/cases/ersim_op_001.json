@@ -205,6 +205,7 @@
       "appearance": "No signs of life.",
       "exam": {},
       "terminal": true,
+      "badOutcome": true,
       "outcome": "Died from respiratory failure due to untreated cholinergic crisis."
     }
   ],

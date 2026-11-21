@@ -1,7 +1,7 @@
 {
   "meta": {
     "caseId": "ERSIM-STEMI-001",
-    "version": 1,
+    "version": 2,
     "title": "Chest pain at the taluk hospital",
     "category": "Cardiovascular",
     "difficulty": "Intermediate",
@@ -116,6 +116,18 @@
       "terminal": false
     },
     {
+      "id": "post_shock_cpr",
+      "label": "Shock delivered, CPR in progress",
+      "vitals": { "hr": 0, "sbp": 0, "dbp": 0, "rr": 0, "spo2": 0, "tempC": 36.9, "rhythm": "CPR in progress (rhythm check at 2 minutes)" },
+      "appearance": "Unresponsive. Chest compressions in progress.",
+      "exam": {
+        "GENERAL": "Unresponsive. CPR in progress.",
+        "CARD": "No pulse check until the 2-minute rhythm check.",
+        "NEURO": "GCS 3."
+      },
+      "terminal": false
+    },
+    {
       "id": "rosc",
       "label": "Return of spontaneous circulation",
       "vitals": { "hr": 104, "sbp": 96, "dbp": 60, "rr": 18, "spo2": 94, "tempC": 36.9, "rhythm": "Sinus tachycardia" },
@@ -165,6 +177,7 @@
       "appearance": "No signs of life.",
       "exam": {},
       "terminal": true,
+      "badOutcome": true,
       "outcome": "Died from untreated ventricular fibrillation."
     }
   ],
@@ -253,8 +266,10 @@
 
     { "id": "tenecteplase", "name": "Tenecteplase", "category": "FIBRINOLYTIC",
       "dose": "35 mg single bolus (weight 60–69 kg)", "route": "IV",
-      "requires": ["done:ecg_12lead", "notState:vf_arrest"],
-      "requiresMessage": "Fibrinolysis needs an ECG diagnosis of STEMI first, and cannot be given during cardiac arrest; defibrillate first.",
+      "requires": ["result:ecg_12lead", "vitals.sbp>0"],
+      "requiresMessage": "Fibrinolysis needs the ECG result showing STEMI (ordering it is not enough), and cannot be given during cardiac arrest.",
+      "unsafeUnless": ["asked:hx_lysis_ci"],
+      "unsafeReason": "Tenecteplase given without screening for contraindications (bleeding, stroke, recent surgery or trauma, suspected dissection). It worked this time, but this is an unsafe process.",
       "contraindicatedWhen": ["fact:lysis_absolute_ci"],
       "contraindicationReason": "Fibrinolysis given despite an absolute contraindication." },
 
@@ -291,13 +306,17 @@
       } },
 
     { "id": "cpr", "name": "High-quality CPR", "category": "RESUSCITATION", "dose": "30:2, minimal interruptions", "repeatable": true,
-      "notIndicatedWhen": ["notState:vf_arrest"],
+      "notIndicatedWhen": ["vitals.sbp>0"],
       "notIndicatedReason": "The patient has a pulse. CPR is not indicated.",
-      "feedbackByState": { "vf_arrest": "CPR in progress. Defibrillate as soon as the pads are charged." } },
+      "feedbackByState": {
+        "vf_arrest": "CPR in progress. Defibrillate as soon as the pads are charged.",
+        "post_shock_cpr": "Compressions continuing. Rhythm check at 2 minutes."
+      } },
 
     { "id": "defibrillate", "name": "Unsynchronised shock", "category": "RESUSCITATION", "dose": "200 J biphasic", "repeatable": true,
-      "contraindicatedWhen": ["notState:vf_arrest"],
-      "contraindicationReason": "Unsynchronised shock given to a patient with a pulse. This can trigger VF." },
+      "contraindicatedWhen": ["vitals.sbp>0"],
+      "contraindicationReason": "Unsynchronised shock given to a patient with a pulse. This can trigger VF.",
+      "feedbackByState": { "post_shock_cpr": "Shock delivered before the rhythm check. Keep compressing; check rhythm at 2 minutes." } },
 
     { "id": "arrange_transfer_pci", "name": "Call PCI centre and arrange ALS transfer", "category": "DISPOSITION",
       "feedbackByState": {
@@ -343,9 +362,17 @@
       "trigger": { "onAction": "transcutaneous_pacing" },
       "message": "Pacing captures. Perfusion improves." },
 
-    { "id": "t_defib", "from": ["vf_arrest"], "to": "rosc",
+    { "id": "t_defib", "from": ["vf_arrest"], "to": "post_shock_cpr",
       "trigger": { "onAction": "defibrillate" },
-      "message": "After the shock and 2 minutes of CPR: return of spontaneous circulation." },
+      "message": "Shock delivered. Resume CPR immediately for 2 minutes, then check the rhythm." },
+
+    { "id": "t_rosc", "from": ["post_shock_cpr"], "to": "rosc",
+      "trigger": { "afterSecondsInState": 120 }, "when": ["done:cpr"],
+      "message": "Rhythm check after 2 minutes of CPR: organised rhythm with a pulse. ROSC." },
+
+    { "id": "t_refibrillates", "from": ["post_shock_cpr"], "to": "vf_arrest",
+      "trigger": { "afterSecondsInState": 120 }, "unless": ["done:cpr"],
+      "message": "Rhythm check: still VF. No CPR was given after the shock." },
 
     { "id": "t_death", "from": ["vf_arrest"], "to": "death",
       "trigger": { "afterSecondsInState": 240 },
@@ -365,7 +392,7 @@
       "teaching": "Decide the reperfusion strategy from the expected time to PCI. If PCI is not possible within 120 minutes of diagnosis, give fibrinolysis." },
     { "id": "ca_ci_screen", "label": "Fibrinolysis contraindications screened", "satisfiedBy": ["ask:hx_lysis_ci"], "points": 10,
       "teaching": "Before lysis, ask about prior intracranial bleeding, recent ischaemic stroke, active bleeding, recent major surgery or head trauma, and suspected aortic dissection." },
-    { "id": "ca_lysis", "label": "Tenecteplase within 10 minutes of STEMI diagnosis", "satisfiedBy": ["tenecteplase"], "deadlineSec": 600, "deadlineAfterAction": "ecg_12lead", "points": 20,
+    { "id": "ca_lysis", "label": "Tenecteplase within 10 minutes of the ECG diagnosis", "satisfiedBy": ["tenecteplase"], "deadlineSec": 600, "deadlineAfterAction": "result:ecg_12lead", "points": 20,
       "teaching": "When fibrinolysis is chosen, give the bolus within 10 minutes of diagnosis. Dose by weight; use half dose at age 75 or over." },
     { "id": "ca_p2y12", "label": "Clopidogrel with fibrinolysis", "satisfiedBy": ["clopidogrel"], "points": 5,
       "teaching": "Clopidogrel 300 mg (age 75 or under) is the P2Y12 inhibitor to use with fibrinolysis." },
@@ -373,6 +400,8 @@
       "teaching": "Give an anticoagulant with lysis: enoxaparin is preferred over UFH." },
     { "id": "ca_pacing", "label": "Pacing for unstable complete heart block", "satisfiedBy": ["transcutaneous_pacing"], "appliesIfVisited": "complete_heart_block", "points": 10,
       "teaching": "Atropine rarely works in infranodal block. Pace early when the patient is unstable." },
+    { "id": "ca_cpr", "label": "High-quality CPR during arrest", "satisfiedBy": ["cpr"], "appliesIfVisited": "vf_arrest", "points": 10,
+      "teaching": "Start compressions immediately and resume them straight after every shock for 2 minutes before the rhythm check." },
     { "id": "ca_defib", "label": "Immediate defibrillation for VF", "satisfiedBy": ["defibrillate"], "appliesIfVisited": "vf_arrest", "points": 10,
       "teaching": "VF needs immediate defibrillation and high-quality CPR. Every minute of delay lowers survival." }
   ],

@@ -107,6 +107,45 @@ class CaseEngineTest {
         assertFalse(d.criticalActions.first { it.def.id == "ca_no_nitrate" }.met)
     }
 
+    @Test fun lysisAfterEcgOrderedButBeforeResult_isRejected() {
+        val s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(30), SimEvent.Perform("tenecteplase"))
+        assertFalse("tenecteplase" in s.performed)
+        assertEquals("presenting", s.stateId)
+        assertEquals(1, s.kinds(LogKind.REJECTED).size)
+        // once the result is back it is allowed
+        val after = CaseEngine.reduceAll(def, s, listOf(SimEvent.Advance(30), SimEvent.Perform("tenecteplase")))
+        assertEquals("post_lysis", after.stateId)
+    }
+
+    @Test fun lysisWithoutContraindicationScreening_isProcessHarm_andCostsPoints() {
+        val s = run(SimEvent.Order("ecg_12lead"), SimEvent.Advance(60), SimEvent.Perform("tenecteplase"))
+        assertEquals("post_lysis", s.stateId)
+        assertEquals(1, s.harms.size)
+        val d = CaseEngine.debrief(def, s)
+        assertEquals(CaseEngine.HARM_PENALTY, d.harmPenalty)
+        assertEquals(d.actionsPercent - CaseEngine.HARM_PENALTY, d.scorePercent)
+    }
+
+    @Test fun death_capsScoreBelowOneStar() {
+        // Everything ticked except treatment of VF: patient dies
+        val s = run(
+            SimEvent.Order("ecg_12lead"), SimEvent.Ask("hx_lysis_ci"), SimEvent.Order("ecg_right_sided"),
+            SimEvent.Perform("aspirin"), SimEvent.Perform("clopidogrel"), SimEvent.Perform("enoxaparin"),
+            SimEvent.Perform("arrange_transfer_pci"), SimEvent.Advance(1500), SimEvent.Advance(240)
+        )
+        assertEquals("death", s.stateId)
+        val d = CaseEngine.debrief(def, s)
+        assertTrue(d.badOutcome)
+        assertTrue(d.scorePercent <= CaseEngine.BAD_OUTCOME_CAP)
+    }
+
+    @Test fun shockWithoutCpr_refibrillatesAtRhythmCheck() {
+        var s = run(SimEvent.Advance(1500), SimEvent.Perform("defibrillate"))
+        assertEquals("post_shock_cpr", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(120))
+        assertEquals("vf_arrest", s.stateId)
+    }
+
     @Test fun lysisWithoutEcg_isRejected() {
         val s = run(SimEvent.Perform("tenecteplase"))
         assertEquals("presenting", s.stateId)
@@ -163,7 +202,11 @@ class CaseEngineTest {
         assertEquals("vf_arrest", s.stateId)
         s = CaseEngine.reduce(def, s, SimEvent.Perform("tenecteplase"))   // blocked during arrest
         assertEquals("vf_arrest", s.stateId)
-        s = CaseEngine.reduce(def, s, SimEvent.Perform("defibrillate"))
+        s = CaseEngine.reduceAll(def, s, listOf(SimEvent.Perform("cpr"), SimEvent.Perform("defibrillate")))
+        assertEquals("post_shock_cpr", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(119))
+        assertEquals("post_shock_cpr", s.stateId)                  // no instant ROSC
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(1))
         assertEquals("rosc", s.stateId)
         assertTrue(s.harms.isEmpty())
         s = CaseEngine.reduce(def, s, SimEvent.Perform("tenecteplase"))

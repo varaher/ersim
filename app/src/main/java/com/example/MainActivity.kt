@@ -67,7 +67,11 @@ fun ErSimRoot(
     var inSimulation by rememberSaveable { mutableStateOf(false) }
     var inGame by rememberSaveable { mutableStateOf(false) }
     val gameState by gameViewModel.state.collectAsStateWithLifecycle()
-    // After process death the game session is gone: fall back to Home
+    // A case saved before the app was closed reopens straight into the game (paused)
+    LaunchedEffect(gameState.isPlaying) {
+        if (gameState.isPlaying && !inGame && !inSimulation) inGame = true
+    }
+    // No session to show (e.g. save was from an older case version): fall back to Home
     LaunchedEffect(inGame, gameState.isPlaying, gameState.cases) {
         if (inGame && !gameState.isPlaying && (gameState.cases.isNotEmpty() || gameState.loadError != null)) inGame = false
     }
