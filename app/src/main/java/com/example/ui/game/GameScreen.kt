@@ -478,7 +478,7 @@ private fun TreatTab(def: CaseDefinition, s: CaseSession, onPerform: (String) ->
                 "FLUIDS", "FLUID", "AIRWAY", "OXYGEN", "SUPPORT" -> ErSimSky
                 "DISPOSITION", "CONSULT", "COMMUNICATION" -> ErSimViolet
                 "FIBRINOLYTIC", "ANTIPLATELET", "ANTICOAGULANT", "ANTI-ISCHAEMIC", "ANALGESIA",
-                "ANTIARRHYTHMIC", "DRUG", "MEDICATION", "MEDS" -> ErSimRose
+                "ANTIARRHYTHMIC", "ANTIDOTE", "DECONTAMINATION", "DRUG", "MEDICATION", "MEDS" -> ErSimRose
                 else -> ErSimMint
             }
             item(key = "h_$category") {

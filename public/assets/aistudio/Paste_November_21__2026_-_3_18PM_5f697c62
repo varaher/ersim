@@ -1,0 +1,619 @@
+1. NEW FILE: app/src/main/assets/cases/ersim_op_001.json
+json
+{
+  "meta": {
+    "caseId": "ERSIM-OP-001",
+    "version": 1,
+    "title": "Insecticide at night",
+    "category": "Toxicology",
+    "difficulty": "Intermediate",
+    "learnerLevel": "Intern to EM resident",
+    "estimatedMinutes": 25,
+    "reviewStatus": "DRAFT",
+    "authors": ["ER SIM clinical content team (draft prepared with Claude)"],
+    "reviewers": [],
+    "guidelineBasis": "Eddleston et al. early management protocol for OP/carbamate self-poisoning (Crit Care 2004); Eddleston & Chowdhury, Br J Clin Pharmacol 2016",
+    "evidenceDate": "2016",
+    "sourceNotes": "Original ER SIM scenario. Not derived from any textbook case. Atropine titration, infusion and toxicity rules follow the Eddleston protocol. Pralidoxime left optional because evidence of benefit is uncertain. Doses and timings must be confirmed by the reviewing emergency physician before status APPROVED.",
+    "learningObjectives": [
+      "Recognise the cholinergic toxidrome and start atropine within 5 minutes",
+      "Titrate atropine by doubling doses to clear chest, HR above 80 and SBP above 80",
+      "Start an infusion at 10–20% of the loading dose per hour once atropinised",
+      "Recognise recurrent cholinergic signs and atropine toxicity, and respond correctly",
+      "Secure the airway in respiratory failure, avoiding succinylcholine",
+      "Decontaminate with staff protection; avoid routine gastric lavage",
+      "Arrange ICU care, medico-legal registration and psychiatric assessment"
+    ]
+  },
+
+  "patient": {
+    "name": "Rajan M.",
+    "ageYears": 34,
+    "sex": "MALE",
+    "weightKg": 60,
+    "characterFamily": "adult_male",
+    "language": "Malayalam",
+    "historian": "SPOUSE",
+    "setting": "District hospital emergency department, Kerala. ICU on site."
+  },
+
+  "presentation": {
+    "chiefComplaint": "Drowsy, frothing and breathless after drinking insecticide 1 hour ago",
+    "triageNote": "Paddy farmer brought by his wife and a neighbour by autorickshaw. Vomited twice on the way. Strong chemical smell. Triage: RED."
+  },
+
+  "facts": ["op_poisoning"],
+
+  "initialState": "cholinergic_crisis",
+
+  "baselineExam": {
+    "GENERAL": "Drowsy but rousable. Drooling and sweating heavily. Vomit on his clothes with a strong kerosene-like smell.",
+    "HEENT": "Pinpoint pupils (1 mm). Excess saliva and tears.",
+    "PULM": "Coarse crackles and wheeze in both lungs (bronchorrhoea). Using accessory muscles.",
+    "CARD": "Slow regular pulse about 48. Normal heart sounds.",
+    "ABD": "Soft. Very active bowel sounds. Has passed loose stool.",
+    "SKIN": "Cold, sweaty skin. Twitching (fasciculations) over the chest and thighs.",
+    "NEURO": "GCS 13 (E3 V4 M6). Generally weak; neck flexion 4/5. Reflexes present."
+  },
+
+  "states": [
+    {
+      "id": "cholinergic_crisis",
+      "label": "Cholinergic crisis",
+      "vitals": { "hr": 48, "sbp": 96, "dbp": 58, "rr": 28, "spo2": 89, "tempC": 36.6, "rhythm": "Sinus bradycardia" },
+      "appearance": "Drowsy, frothing at the mouth, sweating, breathing noisily.",
+      "exam": {},
+      "patientSays": "(Wife) Doctor, please save him! He drank the insecticide we keep for the paddy.",
+      "terminal": false
+    },
+    {
+      "id": "partial_atropinisation",
+      "label": "Partly atropinised",
+      "vitals": { "hr": 72, "sbp": 104, "dbp": 64, "rr": 26, "spo2": 91, "tempC": 36.7, "rhythm": "Sinus rhythm" },
+      "appearance": "Still wet and noisy, a little more alert.",
+      "exam": {
+        "HEENT": "Pupils 1–2 mm. Still salivating.",
+        "PULM": "Fewer crackles, but still present in both lungs.",
+        "CARD": "Regular pulse about 72."
+      },
+      "terminal": false
+    },
+    {
+      "id": "atropinised",
+      "label": "Atropinised",
+      "vitals": { "hr": 106, "sbp": 118, "dbp": 72, "rr": 20, "spo2": 96, "tempC": 37.4, "rhythm": "Sinus tachycardia" },
+      "appearance": "Calmer, mouth dry, breathing quietly.",
+      "exam": {
+        "GENERAL": "More alert. Mouth dry. No drooling.",
+        "HEENT": "Pupils 3–4 mm. Mouth dry.",
+        "PULM": "Chest clear. No crackles or wheeze.",
+        "CARD": "Regular pulse about 106.",
+        "ABD": "Bowel sounds present but quieter.",
+        "SKIN": "Axillae dry. A few fasciculations remain.",
+        "NEURO": "GCS 14. Neck flexion 4/5."
+      },
+      "patientSays": "(Patient, weakly) Where am I...?",
+      "terminal": false
+    },
+    {
+      "id": "maintained",
+      "label": "Atropinised on infusion",
+      "vitals": { "hr": 98, "sbp": 120, "dbp": 74, "rr": 18, "spo2": 97, "tempC": 37.3, "rhythm": "Sinus rhythm" },
+      "appearance": "Settled, mouth dry, chest quiet.",
+      "exam": {
+        "GENERAL": "Settled. Mouth dry.",
+        "HEENT": "Pupils 3–4 mm. Mouth dry.",
+        "PULM": "Chest clear.",
+        "CARD": "Regular pulse about 98.",
+        "ABD": "Bowel sounds present.",
+        "SKIN": "Axillae dry. Occasional fasciculations.",
+        "NEURO": "GCS 14. Neck flexion 4/5. Watch for intermediate syndrome."
+      },
+      "terminal": false
+    },
+    {
+      "id": "recurrent_crisis",
+      "label": "Cholinergic signs returning",
+      "vitals": { "hr": 56, "sbp": 98, "dbp": 60, "rr": 26, "spo2": 90, "tempC": 36.9, "rhythm": "Sinus bradycardia" },
+      "appearance": "Wet and noisy again, sweating.",
+      "exam": {
+        "HEENT": "Pupils small again. Salivating.",
+        "PULM": "Crackles have come back in both lungs.",
+        "CARD": "Slow pulse about 56.",
+        "SKIN": "Sweaty again."
+      },
+      "terminal": false
+    },
+    {
+      "id": "atropine_toxicity",
+      "label": "Atropine toxicity",
+      "vitals": { "hr": 144, "sbp": 142, "dbp": 88, "rr": 22, "spo2": 97, "tempC": 38.7, "rhythm": "Sinus tachycardia" },
+      "appearance": "Agitated and confused, picking at the sheets, hot and flushed.",
+      "exam": {
+        "GENERAL": "Agitated, confused, picking at the bedsheet.",
+        "HEENT": "Pupils dilated (6 mm). Mouth very dry.",
+        "PULM": "Chest clear.",
+        "CARD": "Fast regular pulse about 144.",
+        "ABD": "Distended. No bowel sounds. Bladder palpable.",
+        "SKIN": "Hot, dry and flushed.",
+        "NEURO": "GCS 13 (confused). Agitated."
+      },
+      "patientSays": "(Patient, shouting) Let me go! Who are you?",
+      "terminal": false
+    },
+    {
+      "id": "resp_failure",
+      "label": "Respiratory failure",
+      "vitals": { "hr": 40, "sbp": 84, "dbp": 50, "rr": 8, "spo2": 78, "tempC": 36.4, "rhythm": "Sinus bradycardia" },
+      "appearance": "Unresponsive to voice, pooling secretions, barely breathing.",
+      "exam": {
+        "GENERAL": "Unresponsive to voice. Secretions pooling in the mouth.",
+        "PULM": "Very poor air entry. Copious secretions. Shallow breaths.",
+        "CARD": "Slow pulse about 40.",
+        "NEURO": "GCS 8. Weak cough. Cannot lift his head."
+      },
+      "terminal": false
+    },
+    {
+      "id": "ventilated_crisis",
+      "label": "Intubated, still cholinergic",
+      "vitals": { "hr": 50, "sbp": 92, "dbp": 58, "rr": 16, "spo2": 91, "tempC": 36.6, "rhythm": "Sinus bradycardia" },
+      "appearance": "Intubated and ventilated. Copious secretions in the tube.",
+      "exam": {
+        "GENERAL": "Intubated, sedated, ventilated.",
+        "HEENT": "Pinpoint pupils.",
+        "PULM": "Copious tracheal secretions. Crackles in both lungs.",
+        "CARD": "Slow pulse about 50.",
+        "NEURO": "Sedated."
+      },
+      "terminal": false
+    },
+    {
+      "id": "ventilated_atropinised",
+      "label": "Intubated and atropinised",
+      "vitals": { "hr": 104, "sbp": 116, "dbp": 70, "rr": 16, "spo2": 97, "tempC": 37.4, "rhythm": "Sinus tachycardia" },
+      "appearance": "Ventilated, secretions dried up.",
+      "exam": {
+        "GENERAL": "Intubated, sedated, ventilated.",
+        "HEENT": "Pupils 3–4 mm.",
+        "PULM": "Chest clear. Minimal secretions.",
+        "CARD": "Regular pulse about 104.",
+        "NEURO": "Sedated."
+      },
+      "terminal": false
+    },
+    {
+      "id": "handover",
+      "label": "Admitted to ICU/HDU",
+      "vitals": { "hr": 96, "sbp": 120, "dbp": 74, "rr": 18, "spo2": 97, "tempC": 37.2, "rhythm": "Sinus rhythm" },
+      "appearance": "Stable on the trolley to ICU.",
+      "exam": {},
+      "terminal": true,
+      "outcome": "Atropinised and stable on an infusion; admitted to ICU/HDU with an intermediate-syndrome watch."
+    },
+    {
+      "id": "icu_handover",
+      "label": "Transferred to ICU, ventilated",
+      "vitals": { "hr": 100, "sbp": 118, "dbp": 72, "rr": 16, "spo2": 97, "tempC": 37.3, "rhythm": "Sinus rhythm" },
+      "appearance": "Ventilated, atropinised, on the way to ICU.",
+      "exam": {},
+      "terminal": true,
+      "outcome": "Intubated, atropinised and on an infusion; transferred to ICU for ventilation."
+    },
+    {
+      "id": "death",
+      "label": "Death",
+      "vitals": { "hr": 0, "sbp": 0, "dbp": 0, "rr": 0, "spo2": 0, "tempC": 36.0, "rhythm": "Asystole" },
+      "appearance": "No signs of life.",
+      "exam": {},
+      "terminal": true,
+      "outcome": "Died from respiratory failure due to untreated cholinergic crisis."
+    }
+  ],
+
+  "history": [
+    { "id": "hx_poison", "topic": "What he took", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["What did he drink?", "Which poison was it?"],
+      "answer": "He drank from the insecticide bottle we keep for the paddy field. My brother is bringing the bottle." },
+    { "id": "hx_time", "topic": "Time of ingestion", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["When did he drink it?", "How long ago?"],
+      "answer": "About an hour ago, around 9 at night." },
+    { "id": "hx_amount", "topic": "Amount", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["How much did he drink?"],
+      "answer": "Half the bottle was empty. Maybe 100 mL." },
+    { "id": "hx_coingestants", "topic": "Other substances", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["Did he take any tablets or alcohol?"],
+      "answer": "He had a little arrack in the evening. We did not find any tablets." },
+    { "id": "hx_vomit", "topic": "Vomiting", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["Has he vomited?"],
+      "answer": "He vomited twice in the autorickshaw. It smelled strongly of the chemical." },
+    { "id": "hx_pmh", "topic": "Past medical history", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["Any illnesses or regular medicines?"],
+      "answer": "No illness. He does not take any medicines." },
+    { "id": "hx_intent", "topic": "Circumstances", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["What happened before this?", "Was it on purpose?"],
+      "answer": "He has been very worried about the crop loan for weeks. Tonight he said he could not go on." },
+    { "id": "hx_allergy", "topic": "Allergies", "answeredBy": "Wife (Shyamala)",
+      "samplePrompts": ["Any drug allergies?"],
+      "answer": "No allergies that we know of." }
+  ],
+
+  "investigations": [
+    { "id": "check_container", "name": "Identify the container", "turnaroundSec": 300, "resultsByState": {
+      "*": "Brother arrives with the bottle: quinalphos 25% EC, an organophosphate insecticide."
+    }},
+    { "id": "ecg_12lead", "name": "12-lead ECG", "turnaroundSec": 60, "resultsByState": {
+      "*": "Sinus bradycardia 48. QTc 510 ms. No ST changes.",
+      "partial_atropinisation": "Sinus rhythm 72. QTc 490 ms.",
+      "atropinised": "Sinus tachycardia 106. QTc 470 ms.",
+      "maintained": "Sinus rhythm 98. QTc 465 ms.",
+      "recurrent_crisis": "Sinus bradycardia 56. QTc 500 ms.",
+      "atropine_toxicity": "Sinus tachycardia 144. QTc 460 ms.",
+      "resp_failure": "Sinus bradycardia 40. QTc 520 ms.",
+      "ventilated_atropinised": "Sinus tachycardia 104. QTc 470 ms."
+    }},
+    { "id": "abg", "name": "Arterial blood gas", "turnaroundSec": 300, "resultsByState": {
+      "*": "pH 7.31, pCO₂ 48 mmHg, pO₂ 62 mmHg (room air), HCO₃ 23, lactate 2.4.",
+      "resp_failure": "pH 7.18, pCO₂ 72 mmHg, pO₂ 48 mmHg, HCO₃ 25, lactate 3.8. Acute respiratory acidosis with hypoxia.",
+      "atropinised": "pH 7.38, pCO₂ 40 mmHg, pO₂ 92 mmHg (on oxygen), lactate 1.6.",
+      "maintained": "pH 7.39, pCO₂ 39 mmHg, pO₂ 95 mmHg (on oxygen), lactate 1.4.",
+      "ventilated_atropinised": "pH 7.36, pCO₂ 42 mmHg, pO₂ 110 mmHg (FiO₂ 0.4), lactate 1.8."
+    }},
+    { "id": "cholinesterase", "name": "Plasma cholinesterase", "turnaroundSec": 7200, "resultsByState": {
+      "*": "410 U/L (reference 4,000–12,000). Confirms exposure. It does not guide atropine dosing."
+    }},
+    { "id": "cbg", "name": "Capillary blood glucose", "turnaroundSec": 30, "resultsByState": {
+      "*": "142 mg/dL"
+    }},
+    { "id": "bloods_basic", "name": "CBC, renal function, electrolytes, amylase", "turnaroundSec": 1800, "resultsByState": {
+      "*": "WBC 13,800/µL, Hb 14.2 g/dL, creatinine 0.9 mg/dL, Na 138, K 3.6 mmol/L, amylase 260 U/L (raised, common in OP poisoning)."
+    }},
+    { "id": "cxr", "name": "Portable chest X-ray", "turnaroundSec": 900, "resultsByState": {
+      "*": "Bilateral perihilar haziness from secretions. No focal consolidation.",
+      "ventilated_crisis": "Endotracheal tube 4 cm above the carina. Bilateral perihilar haziness.",
+      "ventilated_atropinised": "Endotracheal tube 4 cm above the carina. Lungs clearer.",
+      "atropinised": "Lungs clearer. No consolidation.",
+      "maintained": "Lungs clearer. No consolidation."
+    }}
+  ],
+
+  "interventions": [
+    { "id": "decontaminate", "name": "Decontaminate with staff PPE", "category": "SUPPORT",
+      "dose": "Gloves and gown for staff; remove soiled clothes; wash skin and hair with soap and water",
+      "feedbackByState": { "*": "Clothes bagged and removed. Skin washed. Staff protected." } },
+
+    { "id": "suction", "name": "Oropharyngeal suction", "category": "AIRWAY", "repeatable": true,
+      "feedbackByState": {
+        "*": "Secretions cleared for now. They will keep coming until he is atropinised.",
+        "atropinised": "Very little to suction now.",
+        "maintained": "Very little to suction now."
+      } },
+
+    { "id": "oxygen", "name": "Oxygen", "category": "OXYGEN", "dose": "High flow, then titrate to SpO₂ 94–98%", "repeatable": true,
+      "notIndicatedWhen": ["vitals.spo2>=96"],
+      "notIndicatedReason": "SpO₂ is already 96% or above. Oxygen is not needed right now." },
+
+    { "id": "iv_access", "name": "Two IV lines and monitor", "category": "SUPPORT",
+      "feedbackByState": { "*": "Two 18G cannulae in place: one for fluids, one for atropine. Monitor on." } },
+
+    { "id": "ns_bolus", "name": "0.9% saline bolus", "category": "FLUIDS", "dose": "500 mL (about 10 mL/kg), then reassess", "route": "IV", "repeatable": true,
+      "feedbackByState": { "*": "Bolus running." } },
+
+    { "id": "atropine_bolus", "name": "Atropine bolus", "category": "ANTIDOTE",
+      "dose": "Start 1.8–3 mg; double the dose every 5 min until atropinised", "route": "IV", "repeatable": true,
+      "contraindicatedWhen": ["state:atropinised", "state:maintained", "state:atropine_toxicity", "state:ventilated_atropinised"],
+      "contraindicationReason": "He was already atropinised. More atropine bolus causes atropine toxicity: tachycardia, hyperthermia, delirium, ileus and urinary retention.",
+      "feedbackByState": {
+        "cholinergic_crisis": "Partial response: HR 72 but the chest is still wet. Reassess in 5 minutes and double the dose if not atropinised.",
+        "partial_atropinisation": "Doubled dose given. Chest clear, HR above 80, SBP above 80, axillae dry: atropinised.",
+        "recurrent_crisis": "Re-bolused until atropinised again. Increase the infusion rate by 20%.",
+        "ventilated_crisis": "Doubling doses given until the chest cleared and HR was above 80: atropinised."
+      } },
+
+    { "id": "atropine_infusion", "name": "Atropine infusion", "category": "ANTIDOTE",
+      "dose": "10–20% of the total loading dose per hour", "route": "IV infusion",
+      "requires": ["done:atropine_bolus"],
+      "requiresMessage": "Atropinise him with bolus doses first. The infusion only maintains atropinisation.",
+      "notIndicatedWhen": ["state:cholinergic_crisis", "state:partial_atropinisation", "state:recurrent_crisis", "state:ventilated_crisis"],
+      "notIndicatedReason": "Not atropinised yet. An infusion alone is too slow: keep giving doubling boluses first.",
+      "feedbackByState": {
+        "atropinised": "Infusion started at about 2 mg/hour (15% of the loading dose). Check chest, HR, pupils, axillae and bowel sounds every 15 minutes.",
+        "ventilated_atropinised": "Infusion started at about 2 mg/hour. Check for recurrence and toxicity every 15 minutes."
+      } },
+
+    { "id": "hold_atropine_infusion", "name": "Stop atropine infusion for 30 minutes", "category": "ANTIDOTE",
+      "dose": "Then restart at a 20% lower rate",
+      "notIndicatedWhen": ["notState:atropine_toxicity"],
+      "notIndicatedReason": "There are no signs of atropine toxicity. Stopping now risks the cholinergic signs coming back." },
+
+    { "id": "pralidoxime", "name": "Pralidoxime", "category": "ANTIDOTE",
+      "dose": "30 mg/kg (1.8 g) over 30 min, then 8 mg/kg/h (about 480 mg/h)", "route": "IV",
+      "feedbackByState": { "*": "Given per local protocol. Evidence of benefit is uncertain; atropine and the airway come first." } },
+
+    { "id": "rsi_rocuronium", "name": "Intubate: ketamine + rocuronium", "category": "AIRWAY",
+      "dose": "Ketamine 1–2 mg/kg, rocuronium 1.2 mg/kg; suction ready", "route": "IV",
+      "notIndicatedWhen": ["state:atropinised", "state:maintained"],
+      "notIndicatedReason": "He is atropinised, protecting his airway and oxygenating. Intubation is not needed now.",
+      "feedbackByState": { "*": "Tube passed. Copious secretions suctioned. Ventilator connected." } },
+
+    { "id": "rsi_succinylcholine", "name": "Intubate: ketamine + succinylcholine", "category": "AIRWAY",
+      "dose": "Ketamine 1–2 mg/kg, succinylcholine 1.5 mg/kg", "route": "IV",
+      "contraindicatedWhen": ["fact:op_poisoning"],
+      "contraindicationReason": "Succinylcholine is broken down by plasma cholinesterase, which OP poisoning blocks. Paralysis can last for hours. Use rocuronium.",
+      "feedbackByState": { "*": "Tube passed. Copious secretions suctioned. Ventilator connected." } },
+
+    { "id": "gastric_lavage", "name": "Gastric lavage", "category": "DECONTAMINATION",
+      "contraindicatedWhen": ["always"],
+      "contraindicationReason": "Gastric lavage is not routinely recommended: no proven benefit, and a high risk of aspiration in a drowsy patient with heavy secretions." },
+
+    { "id": "activated_charcoal", "name": "Activated charcoal", "category": "DECONTAMINATION", "dose": "50 g", "route": "PO/NG",
+      "notIndicatedWhen": ["always"],
+      "notIndicatedReason": "Charcoal has shown no clear benefit in OP poisoning, and it risks aspiration. Never give it before the airway is safe." },
+
+    { "id": "arrange_icu", "name": "Admit to ICU/HDU", "category": "DISPOSITION",
+      "feedbackByState": { "*": "ICU accepts. Ask for hourly atropine checks and a watch for intermediate syndrome (neck and proximal weakness, 24–96 hours)." } },
+
+    { "id": "medicolegal", "name": "Register as medico-legal case (MLC)", "category": "COMMUNICATION",
+      "feedbackByState": { "*": "MLC registered and police intimation sent as required." } },
+
+    { "id": "psych_plan", "name": "Plan psychiatric assessment", "category": "COMMUNICATION",
+      "feedbackByState": { "*": "Psychiatry referral planned for when he is medically fit. Wife counselled and supported." } }
+  ],
+
+  "transitions": [
+    { "id": "t_first_bolus", "from": ["cholinergic_crisis"], "to": "partial_atropinisation",
+      "trigger": { "onAction": "atropine_bolus" },
+      "message": "Partial response to atropine. Keep doubling." },
+
+    { "id": "t_atropinised", "from": ["partial_atropinisation", "recurrent_crisis"], "to": "atropinised",
+      "trigger": { "onAction": "atropine_bolus" },
+      "message": "Atropinised: chest clear, HR above 80, SBP above 80." },
+
+    { "id": "t_over_atropinised", "from": ["atropinised", "maintained"], "to": "atropine_toxicity",
+      "trigger": { "onAction": "atropine_bolus" },
+      "message": "Too much atropine: he is agitated, hot and tachycardic." },
+
+    { "id": "t_infusion", "from": ["atropinised"], "to": "maintained",
+      "trigger": { "onAction": "atropine_infusion" },
+      "message": "Atropinisation maintained on the infusion." },
+
+    { "id": "t_toxicity_settles", "from": ["atropine_toxicity"], "to": "maintained",
+      "trigger": { "onAction": "hold_atropine_infusion" },
+      "message": "Infusion held. Toxicity settling; restart 20% lower in 30 minutes." },
+
+    { "id": "t_recurrence", "from": ["atropinised"], "to": "recurrent_crisis",
+      "trigger": { "afterSecondsInState": 600 },
+      "message": "Without an infusion, the cholinergic signs are coming back." },
+
+    { "id": "t_intubate_roc", "from": ["cholinergic_crisis", "partial_atropinisation", "recurrent_crisis", "resp_failure"], "to": "ventilated_crisis",
+      "trigger": { "onAction": "rsi_rocuronium" },
+      "message": "Intubated and ventilated. Still needs atropine." },
+
+    { "id": "t_intubate_sux", "from": ["cholinergic_crisis", "partial_atropinisation", "recurrent_crisis", "resp_failure"], "to": "ventilated_crisis",
+      "trigger": { "onAction": "rsi_succinylcholine" },
+      "message": "Intubated and ventilated. Still needs atropine." },
+
+    { "id": "t_vent_atropinised", "from": ["ventilated_crisis"], "to": "ventilated_atropinised",
+      "trigger": { "onAction": "atropine_bolus" },
+      "message": "Atropinised on the ventilator." },
+
+    { "id": "t_vent_recurrence", "from": ["ventilated_atropinised"], "to": "ventilated_crisis",
+      "trigger": { "afterSecondsInState": 600 }, "unless": ["done:atropine_infusion"],
+      "message": "Without an infusion, the secretions are returning." },
+
+    { "id": "t_icu_after_infusion", "from": ["ventilated_atropinised"], "to": "icu_handover",
+      "trigger": { "onAction": "atropine_infusion" }, "when": ["done:arrange_icu"],
+      "message": "ICU team takes over." },
+
+    { "id": "t_icu_after_call", "from": ["ventilated_atropinised"], "to": "icu_handover",
+      "trigger": { "onAction": "arrange_icu" }, "when": ["done:atropine_infusion"],
+      "message": "ICU team takes over." },
+
+    { "id": "t_handover", "from": ["maintained"], "to": "handover",
+      "trigger": { "onAction": "arrange_icu" },
+      "message": "Moved to ICU/HDU." },
+
+    { "id": "t_handover_after_call", "from": ["maintained"], "to": "handover",
+      "trigger": { "afterSecondsInState": 60 }, "when": ["done:arrange_icu"],
+      "message": "Moved to ICU/HDU." },
+
+    { "id": "t_resp_failure_untreated", "from": ["cholinergic_crisis"], "to": "resp_failure",
+      "trigger": { "afterCaseSeconds": 600 },
+      "message": "He is barely breathing: respiratory failure." },
+
+    { "id": "t_resp_failure_stalled", "from": ["partial_atropinisation", "recurrent_crisis"], "to": "resp_failure",
+      "trigger": { "afterSecondsInState": 600 },
+      "message": "Atropine was not escalated. He is barely breathing: respiratory failure." },
+
+    { "id": "t_death", "from": ["resp_failure"], "to": "death",
+      "trigger": { "afterSecondsInState": 300 },
+      "message": "No airway support. Cardiac arrest." },
+
+    { "id": "t_vent_death", "from": ["ventilated_crisis"], "to": "death",
+      "trigger": { "afterSecondsInState": 900 },
+      "message": "Untreated cholinergic crisis on the ventilator: bradycardic arrest." }
+  ],
+
+  "criticalActions": [
+    { "id": "ca_atropine", "label": "First atropine bolus within 5 minutes", "satisfiedBy": ["atropine_bolus"], "deadlineSec": 300, "points": 20,
+      "teaching": "Pinpoint pupils, secretions and bradycardia after a pesticide are enough to start atropine. Do not wait for the container or tests." },
+    { "id": "ca_infusion", "label": "Atropine infusion after atropinisation", "satisfiedBy": ["atropine_infusion"], "points": 15,
+      "teaching": "Once atropinised, run an infusion at 10–20% of the total loading dose per hour, or the signs come back." },
+    { "id": "ca_decon", "label": "Decontamination with staff protection", "satisfiedBy": ["decontaminate"], "deadlineSec": 900, "points": 10,
+      "teaching": "Remove soiled clothes and wash the skin, with gloves and a gown for staff. Do not delay atropine for this." },
+    { "id": "ca_oxygen", "label": "Oxygen for hypoxia", "satisfiedBy": ["oxygen"], "deadlineSec": 600, "points": 5,
+      "teaching": "Give oxygen early, but atropine is what clears the bronchorrhoea." },
+    { "id": "ca_fluids", "label": "IV fluid bolus", "satisfiedBy": ["ns_bolus"], "points": 5,
+      "teaching": "Give 10–20 mL/kg of saline early; many patients are dehydrated from vomiting, diarrhoea and sweating." },
+    { "id": "ca_no_sux", "label": "Succinylcholine avoided", "satisfiedBy": ["rsi_succinylcholine"], "avoid": true, "points": 10,
+      "teaching": "OP poisoning blocks plasma cholinesterase, so succinylcholine causes prolonged paralysis. Use rocuronium." },
+    { "id": "ca_no_lavage", "label": "Routine gastric lavage avoided", "satisfiedBy": ["gastric_lavage"], "avoid": true, "points": 5,
+      "teaching": "Lavage has no proven benefit and risks aspiration. Focus on atropine, oxygen and the airway." },
+    { "id": "ca_identify", "label": "Poison and timing identified", "satisfiedBy": ["ask:hx_poison", "check_container"], "points": 5,
+      "teaching": "Ask what was taken, how much and when, and ask for the container. Treat the toxidrome meanwhile." },
+    { "id": "ca_icu", "label": "ICU/HDU admission", "satisfiedBy": ["arrange_icu"], "points": 10,
+      "teaching": "Admit to a monitored bed: recurrence, atropine toxicity and intermediate syndrome can all appear later." },
+    { "id": "ca_mlc", "label": "Medico-legal case registered", "satisfiedBy": ["medicolegal"], "points": 5,
+      "teaching": "In India, poisoning is a medico-legal case: register an MLC and inform the police as required." },
+    { "id": "ca_psych", "label": "Psychiatric assessment planned", "satisfiedBy": ["psych_plan"], "points": 5,
+      "teaching": "Every intentional self-poisoning needs a psychiatric assessment and safety plan once medically fit." },
+    { "id": "ca_airway", "label": "Airway secured with rocuronium in respiratory failure", "satisfiedBy": ["rsi_rocuronium"], "appliesIfVisited": "resp_failure", "points": 15,
+      "teaching": "Intubate early for respiratory failure, low GCS or uncontrolled secretions. Use a non-depolarising agent." },
+    { "id": "ca_hold", "label": "Infusion held for atropine toxicity", "satisfiedBy": ["hold_atropine_infusion"], "appliesIfVisited": "atropine_toxicity", "points": 10,
+      "teaching": "For atropine toxicity (tachycardia, hyperthermia, delirium, no bowel sounds), stop the infusion for 30 minutes and restart 20% lower." }
+  ],
+
+  "debrief": {
+    "diagnosis": "Acute organophosphate (quinalphos) self-poisoning with cholinergic crisis",
+    "summary": "A 34-year-old farmer drank about 100 mL of quinalphos an hour before arrival. Pinpoint pupils, bronchorrhoea, bradycardia, sweating and fasciculations make the cholinergic toxidrome clear. Survival depends on fast atropine titration, an infusion, and timely airway support.",
+    "disposition": "Admit to ICU/HDU on an atropine infusion with checks every 15 minutes at first. Watch for intermediate syndrome for 24–96 hours (neck flexion and proximal weakness, cranial nerve palsies) and be ready to ventilate. Register an MLC. Arrange a psychiatric assessment once medically fit.",
+    "teachingPoints": [
+      "Start atropine at 1.8–3 mg IV and double the dose every 5 minutes.",
+      "Targets: clear chest, HR above 80, SBP above 80, dry axillae, pupils no longer pinpoint. A clear chest matters most.",
+      "Once atropinised, infuse 10–20% of the total loading dose per hour.",
+      "If signs recur, re-bolus and raise the infusion by 20%. If toxicity appears, stop the infusion for 30 minutes and restart 20% lower.",
+      "Intubate with rocuronium, not succinylcholine.",
+      "Decontaminate with staff PPE. Do not perform routine gastric lavage.",
+      "Pralidoxime: evidence of benefit is uncertain; follow local protocol, but never delay atropine or the airway.",
+      "Cholinesterase levels confirm exposure but do not guide atropine dosing."
+    ]
+  }
+}
+2. NEW FILE: app/src/test/java/com/example/engine/OpCaseTest.kt
+kotlin
+package com.example.engine
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/** Pathway tests for ERSIM-OP-001 (organophosphate poisoning). */
+class OpCaseTest {
+
+    private val def: CaseDefinition by lazy {
+        val f = listOf("src/main/assets/cases/ersim_op_001.json", "app/src/main/assets/cases/ersim_op_001.json")
+            .map { File(it) }.first { it.exists() }
+        CaseParser.parse(f.readText())
+    }
+
+    private fun run(vararg e: SimEvent) = CaseEngine.reduceAll(def, CaseEngine.start(def), e.toList())
+    private fun ca(s: CaseSession, id: String) = CaseEngine.debrief(def, s).criticalActions.first { it.def.id == id }
+
+    @Test fun loadsAndValidates() {
+        assertEquals("ERSIM-OP-001", def.meta.caseId)
+        assertEquals("cholinergic_crisis", def.initialStateId)
+        assertEquals(48, CaseEngine.currentState(def, CaseEngine.start(def)).vitals.hr)
+    }
+
+    @Test fun idealPathway_atropiniseInfuseAdmit_fullScore() {
+        val s = run(
+            SimEvent.Perform("iv_access"),
+            SimEvent.Perform("oxygen"),
+            SimEvent.Perform("atropine_bolus"),          // partial
+            SimEvent.Ask("hx_poison"),
+            SimEvent.Perform("decontaminate"),
+            SimEvent.Perform("ns_bolus"),
+            SimEvent.Advance(300),                        // reassess at 5 min
+            SimEvent.Perform("atropine_bolus"),          // doubled -> atropinised
+            SimEvent.Perform("atropine_infusion"),       // maintained
+            SimEvent.Perform("medicolegal"),
+            SimEvent.Perform("psych_plan"),
+            SimEvent.Perform("arrange_icu")              // handover
+        )
+        assertTrue(s.ended)
+        assertEquals("handover", s.stateId)
+        assertTrue(s.harms.isEmpty())
+        val d = CaseEngine.debrief(def, s)
+        assertEquals(100, d.scorePercent)
+        assertFalse(d.criticalActions.any { it.def.id == "ca_airway" || it.def.id == "ca_hold" })
+    }
+
+    @Test fun singleBolusNotEscalated_progressesToRespiratoryFailure_thenDeath() {
+        var s = run(SimEvent.Perform("atropine_bolus"), SimEvent.Advance(599))
+        assertEquals("partial_atropinisation", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(1))
+        assertEquals("resp_failure", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Advance(300))
+        assertEquals("death", s.stateId)
+        assertTrue(s.ended)
+    }
+
+    @Test fun noAtropine_respiratoryFailureAt10min_rocuroniumIntubationScores() {
+        var s = run(SimEvent.Advance(600))
+        assertEquals("resp_failure", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("rsi_rocuronium"))
+        assertEquals("ventilated_crisis", s.stateId)
+        s = CaseEngine.reduceAll(def, s, listOf(
+            SimEvent.Perform("atropine_bolus"),
+            SimEvent.Perform("arrange_icu"),
+            SimEvent.Perform("atropine_infusion")
+        ))
+        assertEquals("icu_handover", s.stateId)
+        assertTrue(ca(s, "ca_airway").met)
+        assertTrue(ca(s, "ca_atropine").late)
+    }
+
+    @Test fun succinylcholine_isHarm() {
+        val s = run(SimEvent.Advance(600), SimEvent.Perform("rsi_succinylcholine"))
+        assertEquals("ventilated_crisis", s.stateId)
+        assertEquals(1, s.harms.size)
+        assertFalse(ca(s, "ca_no_sux").met)
+    }
+
+    @Test fun extraBolusWhenAtropinised_causesToxicity_holdingInfusionResolves() {
+        var s = run(SimEvent.Perform("atropine_bolus"), SimEvent.Perform("atropine_bolus"))
+        assertEquals("atropinised", s.stateId)
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("atropine_bolus"))
+        assertEquals("atropine_toxicity", s.stateId)
+        assertEquals(1, s.harms.size)
+        assertEquals(144, CaseEngine.currentState(def, s).vitals.hr)
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("hold_atropine_infusion"))
+        assertEquals("maintained", s.stateId)
+        assertTrue(ca(s, "ca_hold").met)
+    }
+
+    @Test fun atropinisedWithoutInfusion_recurs_rebolusRecovers() {
+        var s = run(SimEvent.Perform("atropine_bolus"), SimEvent.Perform("atropine_bolus"), SimEvent.Advance(600))
+        assertEquals("recurrent_crisis", s.stateId)
+        assertTrue(CaseEngine.currentState(def, s).vitals.hr < 60)
+        s = CaseEngine.reduce(def, s, SimEvent.Perform("atropine_bolus"))
+        assertEquals("atropinised", s.stateId)
+        assertTrue(s.harms.isEmpty())
+    }
+
+    @Test fun infusionBeforeAtropinisation_isBlockedThenNoted() {
+        var s = run(SimEvent.Perform("atropine_infusion"))
+        assertFalse("atropine_infusion" in s.performed)          // requires a bolus first
+        s = CaseEngine.reduceAll(def, s, listOf(SimEvent.Perform("atropine_bolus"), SimEvent.Perform("atropine_infusion")))
+        assertEquals("partial_atropinisation", s.stateId)       // infusion alone does not atropinise
+        assertTrue(s.log.any { it.kind == LogKind.NOTE && it.refId == "atropine_infusion" })
+    }
+
+    @Test fun gastricLavage_isHarm_charcoalIsNote() {
+        val s = run(SimEvent.Perform("gastric_lavage"), SimEvent.Perform("activated_charcoal"))
+        assertEquals(1, s.harms.size)
+        assertTrue(s.log.any { it.kind == LogKind.NOTE && it.refId == "activated_charcoal" })
+    }
+
+    @Test fun examFindings_changeWithAtropinisation() {
+        var s = run(SimEvent.Examine("PULM"))
+        assertTrue(GameRules.lastExamFinding(s, "PULM")!!.contains("crackles"))
+        s = CaseEngine.reduceAll(def, s, listOf(SimEvent.Perform("atropine_bolus"), SimEvent.Perform("atropine_bolus"), SimEvent.Examine("PULM")))
+        assertTrue(GameRules.lastExamFinding(s, "PULM")!!.startsWith("Chest clear"))
+    }
+
+    @Test fun container_identifiesPoison_after5min() {
+        val s = run(SimEvent.Order("check_container"), SimEvent.Perform("atropine_bolus"), SimEvent.Advance(300))
+        assertTrue(s.results.getValue("check_container").contains("quinalphos"))
+    }
+}
+
+Optional: in GameScreen.kt, add "ANTIDOTE", "DECONTAMINATION" to the ErSimRose line of catColor, so the new Treat categories get a colour instead of the default mint.
+
+Try three runs:
+
+Ideal: atropine → fluids, oxygen and decontamination → Wait 5 min → atropine again → infusion → MLC, psychiatry, ICU. That gives ⭐⭐⭐.
+Too eager: after atropinisation, give one more bolus and watch for toxicity, then hold the infusion.
+Too slow: give one bolus only and wait. He goes into respiratory failure; intubate with rocuronium.
