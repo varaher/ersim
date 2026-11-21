@@ -24,6 +24,7 @@ data class PendingResult(val investigationId: String, val orderedAtSec: Int, val
 
 data class CaseSession(
     val caseId: String,
+    val caseVersion: Int,                                // a saved session only replays on the same case version
     val elapsedSec: Int = 0,
     val stateId: String,
     val stateEnteredAtSec: Int = 0,
@@ -49,6 +50,7 @@ object CaseEngine {
         )
         return CaseSession(
             caseId = def.meta.caseId,
+            caseVersion = def.meta.version,
             stateId = s0.id,
             visitedStates = listOf(s0.id),
             log = opening
@@ -58,6 +60,10 @@ object CaseEngine {
     fun currentState(def: CaseDefinition, s: CaseSession): PatientStateDef = def.states.getValue(s.stateId)
 
     fun reduce(def: CaseDefinition, s: CaseSession, e: SimEvent): CaseSession {
+        require(s.caseId == def.meta.caseId && s.caseVersion == def.meta.version) {
+            "Session ${s.caseId} v${s.caseVersion} does not belong to ${def.meta.caseId} v${def.meta.version}"
+        }
+        require(s.stateId in def.states) { "Unknown saved patient state ${s.stateId}" }
         if (s.ended) return s
         return when (e) {
             is SimEvent.Advance -> advance(def, s, e.seconds)

@@ -57,7 +57,8 @@ data class CaseProgress(
     val startedCaseNumbers: Set<Int> = emptySet(),
     val sessionsCount: Int = 0,
     val lastCaseNumber: Int? = null,
-    val lastPlayedAtMillis: Long = 0L
+    val lastPlayedAtMillis: Long = 0L,
+    val bestStars: Map<String, Int> = emptyMap()      // interactive caseId -> best stars (0-3)
 )
 
 data class AppPrefsState(
@@ -93,7 +94,12 @@ class AppPrefsRepository(context: Context) {
                 .mapNotNull { it.toIntOrNull() }.toSet(),
             sessionsCount = sp.getInt(K_SESSIONS, 0),
             lastCaseNumber = sp.getInt(K_LAST_CASE, -1).takeIf { it > 0 },
-            lastPlayedAtMillis = sp.getLong(K_LAST_AT, 0L)
+            lastPlayedAtMillis = sp.getLong(K_LAST_AT, 0L),
+            bestStars = (sp.getStringSet(K_STARS, emptySet()) ?: emptySet()).mapNotNull { e ->
+                val id = e.substringBeforeLast("=", "")
+                val n = e.substringAfterLast("=", "").toIntOrNull()
+                if (id.isNotEmpty() && n != null) id to n else null
+            }.toMap()
         )
     )
 
@@ -113,6 +119,7 @@ class AppPrefsRepository(context: Context) {
             .putInt(K_SESSIONS, s.progress.sessionsCount)
             .putInt(K_LAST_CASE, s.progress.lastCaseNumber ?: -1)
             .putLong(K_LAST_AT, s.progress.lastPlayedAtMillis)
+            .putStringSet(K_STARS, s.progress.bestStars.map { (id, n) -> "$id=$n" }.toSet())
             .apply()
     }
 
@@ -135,6 +142,7 @@ class AppPrefsRepository(context: Context) {
         const val K_SESSIONS = "progress_sessions"
         const val K_LAST_CASE = "progress_last_case"
         const val K_LAST_AT = "progress_last_at"
+        const val K_STARS = "progress_best_stars"
     }
 }
 
@@ -168,6 +176,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetProgress() = mutate { it.copy(progress = CaseProgress()) }
+
+    /** Interactive case finished: keep the best star rating and count the session. */
+    fun recordInteractiveResult(caseId: String, stars: Int) = mutate {
+        val best = maxOf(stars, it.progress.bestStars[caseId] ?: 0)
+        it.copy(
+            progress = it.progress.copy(
+                bestStars = it.progress.bestStars + (caseId to best),
+                sessionsCount = it.progress.sessionsCount + 1,
+                lastPlayedAtMillis = System.currentTimeMillis()
+            )
+        )
+    }
 
     /** Log out: clears this device's profile and progress, keeps display settings, returns to Welcome. */
     fun logOut() = mutate { AppPrefsState(settings = it.settings) }

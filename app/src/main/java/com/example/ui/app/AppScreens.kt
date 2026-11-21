@@ -24,6 +24,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -53,6 +55,16 @@ enum class AppTab(val label: String, val icon: ImageVector) {
     SETTINGS("Settings", Icons.Default.Settings)
 }
 
+/** Card data for an engine-driven interactive case (built from CaseDefinition.meta). */
+data class InteractiveCaseSummary(
+    val caseId: String,
+    val title: String,
+    val category: String,
+    val difficulty: String,
+    val minutes: Int,
+    val reviewStatus: String
+)
+
 enum class CaseFilter(val label: String) { ALL("All"), ADULT("Adult"), PEDIATRIC("Paediatric"), NOT_STARTED("New to me") }
 
 @Composable
@@ -65,7 +77,9 @@ fun ErSimAppShell(
     onUpdateSettings: (AppSettings) -> Unit,
     onResetProgress: () -> Unit,
     onResetEverything: () -> Unit,
-    onLogOut: () -> Unit
+    onLogOut: () -> Unit,
+    interactiveCases: List<InteractiveCaseSummary> = emptyList(),
+    onPlayInteractive: (String) -> Unit = {}
 ) {
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -115,7 +129,9 @@ fun ErSimAppShell(
                     onResumeLastCase = onResumeLastCase,
                     onBrowseCases = { filter -> caseFilter = filter; tab = AppTab.CASES },
                     onOpenProfile = { tab = AppTab.PROFILE },
-                    onOpenAbout = { showAbout = true }
+                    onOpenAbout = { showAbout = true },
+                    interactiveCases = interactiveCases,
+                    onPlayInteractive = onPlayInteractive
                 )
                 AppTab.CASES -> CaseLibraryScreen(
                     progress = appState.progress,
@@ -152,7 +168,9 @@ private fun HomeScreen(
     onResumeLastCase: () -> Unit,
     onBrowseCases: (CaseFilter) -> Unit,
     onOpenProfile: () -> Unit,
-    onOpenAbout: () -> Unit
+    onOpenAbout: () -> Unit,
+    interactiveCases: List<InteractiveCaseSummary>,
+    onPlayInteractive: (String) -> Unit
 ) {
     val profile = appState.profile
     val progress = appState.progress
@@ -171,34 +189,140 @@ private fun HomeScreen(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
                 BrandWordmark(size = 24)
-                Text("Immersive emergency medicine training", color = ErSimTextMuted, fontSize = 12.sp)
+                Text("Immersive emergency medicine training", color = ErSimCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
             AvatarCircle(initials = profile.initials, size = 42, modifier = Modifier.clickable { onOpenProfile() })
         }
 
-        Column {
-            Text(
-                text = greeting() + if (firstName.isNotEmpty()) ", $firstName" else "",
-                color = ErSimTextPrimary,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            Text(text = "Ready for your next patient?", color = ErSimTextMuted, fontSize = 14.sp)
-        }
-
-        if (progress.lastCaseNumber != null && lastCaseTitle != null) {
-            AppCard(borderColor = ErSimMint) {
-                Text("CONTINUE", color = ErSimMint, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(lastCaseTitle, color = ErSimTextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(10.dp))
-                PrimaryButton(text = "Resume case", icon = Icons.Default.PlayArrow, onClick = onResumeLastCase)
+        // Vibrant Hero Greeting Card
+        Surface(
+            color = Color.Transparent,
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, ErSimCyan.copy(alpha = 0.45f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            ErSimMint.copy(alpha = 0.18f),
+                            ErSimCyan.copy(alpha = 0.12f),
+                            ErSimViolet.copy(alpha = 0.14f)
+                        )
+                    )
+                )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = greeting() + if (firstName.isNotEmpty()) ", $firstName" else "",
+                    color = ErSimTextPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "Ready for your next emergency patient?",
+                    color = ErSimTextMuted,
+                    fontSize = 13.5.sp
+                )
+                if (progress.lastCaseNumber != null && lastCaseTitle != null) {
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider(color = ErSimBorder.copy(alpha = 0.6f))
+                    Spacer(Modifier.height(10.dp))
+                    Text("CONTINUE LAST CASE", color = ErSimMint, fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp)
+                    Spacer(Modifier.height(3.dp))
+                    Text(lastCaseTitle, color = ErSimTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(10.dp))
+                    PrimaryButton(text = "Resume case", icon = Icons.Default.PlayArrow, onClick = onResumeLastCase)
+                }
             }
         }
 
-        AppCard {
+        if (interactiveCases.isNotEmpty()) {
+            AppCard(borderColor = ErSimAmber) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "INTERACTIVE CASES",
+                        color = ErSimAmber,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.2.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "NEW",
+                        color = ErSimBg,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier
+                            .background(ErSimAmber, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Live patient, real-time clock, consequences and debrief.",
+                    color = ErSimTextMuted,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    interactiveCases.forEach { c ->
+                        val best = progress.bestStars[c.caseId] ?: 0
+                        Surface(
+                            color = ErSimRaisedSurface,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, ErSimAmber.copy(alpha = 0.25f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPlayInteractive(c.caseId) }
+                                .testTag("play_${c.caseId}")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        c.title,
+                                        color = ErSimTextPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "${c.category} • ${c.difficulty} • ~${c.minutes} min" +
+                                            if (c.reviewStatus != "APPROVED") " • Draft" else "",
+                                        color = ErSimTextMuted,
+                                        fontSize = 12.sp
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        repeat(3) { i ->
+                                            Icon(
+                                                if (i < best) Icons.Default.Star else Icons.Default.StarBorder,
+                                                contentDescription = null,
+                                                tint = if (i < best) ErSimAmber else ErSimTextMuted,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = "Play ${c.title}",
+                                    tint = ErSimMint,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        AppCard(borderColor = ErSimSky.copy(alpha = 0.45f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(Icons.Default.LocalHospital)
+                IconBadge(Icons.Default.LocalHospital, accent = ErSimRed)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Start a new case", color = ErSimTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -207,31 +331,31 @@ private fun HomeScreen(
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                SecondaryButton("All cases", Modifier.weight(1f)) { onBrowseCases(CaseFilter.ALL) }
-                SecondaryButton("Adult", Modifier.weight(1f)) { onBrowseCases(CaseFilter.ADULT) }
-                SecondaryButton("Paediatric", Modifier.weight(1f)) { onBrowseCases(CaseFilter.PEDIATRIC) }
+                SecondaryButton("All cases", ErSimMint, Modifier.weight(1f)) { onBrowseCases(CaseFilter.ALL) }
+                SecondaryButton("Adult", ErSimSky, Modifier.weight(1f)) { onBrowseCases(CaseFilter.ADULT) }
+                SecondaryButton("Paediatric", ErSimRose, Modifier.weight(1f)) { onBrowseCases(CaseFilter.PEDIATRIC) }
             }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            StatTile("${progress.startedCaseNumbers.size}/$totalCases", "Cases tried", Modifier.weight(1f))
-            StatTile("${progress.sessionsCount}", "Sessions", Modifier.weight(1f))
-            StatTile("$pedsCount", "Paediatric", Modifier.weight(1f))
+            StatTile("${progress.startedCaseNumbers.size}/$totalCases", "Cases tried", ErSimMint, Icons.Default.TaskAlt, Modifier.weight(1f))
+            StatTile("${progress.sessionsCount}", "Sessions", ErSimSky, Icons.Default.Timeline, Modifier.weight(1f))
+            StatTile("$pedsCount", "Paediatric", ErSimRose, Icons.Default.ChildCare, Modifier.weight(1f))
         }
 
-        AppCard {
+        AppCard(borderColor = ErSimViolet.copy(alpha = 0.35f)) {
             Text("How a case works", color = ErSimTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
-            HowStep(1, "Enter the bay", "Answer the entry question (Q0) to see the patient and monitor.")
-            HowStep(2, "Assess and examine", "Work through XABCDE, tap the patient to examine, unlock labs and imaging.")
-            HowStep(3, "Treat and stabilise", "Use the crash cart, ventilator and defibrillator. Complete critical actions.")
-            HowStep(4, "Debrief", "End the case to review actions and hand off.")
+            HowStep(1, "Enter the bay", "Answer the entry question (Q0) to see the patient and monitor.", ErSimCyan)
+            HowStep(2, "Assess and examine", "Work through XABCDE, tap the patient to examine, unlock labs and imaging.", ErSimAmber)
+            HowStep(3, "Treat and stabilise", "Use the crash cart, ventilator and defibrillator. Complete critical actions.", ErSimRed)
+            HowStep(4, "Debrief", "End the case to review actions and hand off.", ErSimMint)
         }
 
         Text("For supervised education only. Not for real patient care decisions.", color = ErSimTextMuted, fontSize = 11.sp)
         Text(
             text = "About ER SIM",
-            color = ErSimMint,
+            color = ErSimCyan,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
@@ -242,20 +366,20 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun HowStep(n: Int, title: String, body: String) {
+private fun HowStep(n: Int, title: String, body: String, accent: Color = ErSimMint) {
     Row(modifier = Modifier.padding(vertical = 5.dp)) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(24.dp)
-                .background(ErSimRaisedSurface, CircleShape)
-                .border(1.dp, ErSimMint, CircleShape)
+                .size(26.dp)
+                .background(accent.copy(alpha = 0.16f), CircleShape)
+                .border(1.2.dp, accent, CircleShape)
         ) {
-            Text("$n", color = ErSimMint, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("$n", color = accent, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
         }
         Spacer(Modifier.width(10.dp))
         Column {
-            Text(title, color = ErSimTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = ErSimTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Text(body, color = ErSimTextMuted, fontSize = 12.sp, lineHeight = 16.sp)
         }
     }
@@ -345,27 +469,90 @@ private fun CaseLibraryScreen(
 private fun CaseRow(case: OralBoardCase, started: Boolean, onClick: () -> Unit) {
     val character = remember(case.caseNumber) { PatientCharacterRegistry.characterFor(case) }
     val sexLabel = if (character.sex == PatientSex.FEMALE) "Female" else "Male"
+    val accent = ClinicalSeverityEngine.categoryAccent(case.scenarioCategory, case.isPediatricOrInfant)
+
     Surface(
         color = ErSimSurface,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, ErSimBorder),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.40f)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
             .testTag("case_row_${case.caseNumber}")
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
-            IconBadge(if (case.isPediatricOrInfant) Icons.Default.ChildCare else Icons.Default.Person)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("CASE ${case.caseNumber}", color = ErSimMint, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
-                Text(case.scenarioCategory, color = ErSimTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${character.ageBand.label} • $sexLabel", color = ErSimTextMuted, fontSize = 12.sp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.5.dp)
+                    .fillMaxHeight()
+                    .background(accent)
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f).padding(13.dp)
+            ) {
+                IconBadge(
+                    icon = if (case.isPediatricOrInfant) Icons.Default.ChildCare else Icons.Default.LocalHospital,
+                    accent = accent
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "CASE ${case.caseNumber}",
+                            color = accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.sp
+                        )
+                        if (case.isPediatricOrInfant) {
+                            Surface(
+                                color = ErSimRose.copy(alpha = 0.16f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "PAED",
+                                    color = ErSimRose,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = case.scenarioCategory,
+                        color = ErSimTextPrimary,
+                        fontSize = 15.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text("${character.ageBand.label} • $sexLabel", color = ErSimTextMuted, fontSize = 12.sp)
+                }
+                if (started) {
+                    Surface(
+                        color = ErSimAmber.copy(alpha = 0.18f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.padding(end = 6.dp)
+                    ) {
+                        Text(
+                            text = "TRIED",
+                            color = ErSimAmber,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = "Start case", tint = accent)
             }
-            if (started) {
-                Text("TRIED", color = ErSimAmber, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(end = 8.dp))
-            }
-            Icon(Icons.Default.ChevronRight, contentDescription = "Start case", tint = ErSimTextMuted)
         }
     }
 }
@@ -405,8 +592,8 @@ private fun ProfileScreen(appState: AppPrefsState, onSave: (UserProfile) -> Unit
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            StatTile("${appState.progress.startedCaseNumbers.size}", "Cases tried", Modifier.weight(1f))
-            StatTile("${appState.progress.sessionsCount}", "Sessions", Modifier.weight(1f))
+            StatTile("${appState.progress.startedCaseNumbers.size}", "Cases tried", ErSimMint, Icons.Default.TaskAlt, Modifier.weight(1f))
+            StatTile("${appState.progress.sessionsCount}", "Sessions", ErSimSky, Icons.Default.Timeline, Modifier.weight(1f))
         }
 
         SectionLabel("ABOUT YOU")
@@ -502,23 +689,23 @@ private fun SettingsScreen(
         SectionLabel("SIMULATION")
         ToggleRow(
             Icons.AutoMirrored.Filled.VolumeUp, "Sound & alarms", "Monitor beeps and alarm sounds in the bay",
-            settings.soundEnabled
+            settings.soundEnabled, iconTint = ErSimSky
         ) { onUpdateSettings(settings.copy(soundEnabled = it)) }
         ToggleRow(
             Icons.Default.Gamepad, "Show movement joystick", "On-screen joystick for moving around the bay",
-            settings.showJoystickByDefault
+            settings.showJoystickByDefault, iconTint = ErSimViolet
         ) { onUpdateSettings(settings.copy(showJoystickByDefault = it)) }
         ToggleRow(
             Icons.Default.LightMode, "Keep screen on", "Prevent the screen from sleeping during a case",
-            settings.keepScreenOnInCase
+            settings.keepScreenOnInCase, iconTint = ErSimAmber
         ) { onUpdateSettings(settings.copy(keepScreenOnInCase = it)) }
 
         SectionLabel("DATA")
-        ActionRow(Icons.Default.Refresh, "Reset case progress", "Clears cases tried and session count") { confirm = "progress" }
+        ActionRow(Icons.Default.Refresh, "Reset case progress", "Clears cases tried and session count", iconTint = ErSimOrange) { confirm = "progress" }
         ActionRow(Icons.Default.DeleteForever, "Reset app", "Clears profile, settings and progress", danger = true) { confirm = "all" }
 
         SectionLabel("INFORMATION")
-        ActionRow(Icons.Default.Info, "About ER SIM", "Version, purpose and disclaimer") { onOpenAbout() }
+        ActionRow(Icons.Default.Info, "About ER SIM", "Version, purpose and disclaimer", iconTint = ErSimCyan) { onOpenAbout() }
 
         SectionLabel("ACCOUNT")
         ActionRow(Icons.AutoMirrored.Filled.Logout, "Log out", "Sign out of ER SIM on this device", danger = true) {
@@ -748,14 +935,15 @@ private fun AvatarCircle(initials: String, size: Int, modifier: Modifier = Modif
 }
 
 @Composable
-private fun IconBadge(icon: ImageVector, size: Int = 42) {
+private fun IconBadge(icon: ImageVector, size: Int = 42, accent: Color = ErSimMint) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(size.dp)
-            .background(ErSimRaisedSurface, RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+            .border(1.dp, accent.copy(alpha = 0.40f), RoundedCornerShape(12.dp))
     ) {
-        Icon(icon, contentDescription = null, tint = ErSimMint, modifier = Modifier.size((size * 0.5f).dp))
+        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size((size * 0.5f).dp))
     }
 }
 
@@ -772,16 +960,39 @@ private fun AppCard(borderColor: Color = ErSimBorder, content: @Composable Colum
 }
 
 @Composable
-private fun StatTile(value: String, label: String, modifier: Modifier = Modifier) {
+private fun StatTile(
+    value: String,
+    label: String,
+    accent: Color = ErSimMint,
+    icon: ImageVector? = null,
+    modifier: Modifier = Modifier
+) {
     Surface(
-        color = ErSimSurface,
+        color = accent.copy(alpha = 0.09f),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, ErSimBorder),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.40f)),
         modifier = modifier
     ) {
-        Column(modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp)) {
-            Text(value, color = ErSimTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-            Text(label, color = ErSimTextMuted, fontSize = 11.sp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(accent)
+            )
+            Column(modifier = Modifier.padding(vertical = 11.dp, horizontal = 12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(value, color = accent, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                    if (icon != null) {
+                        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Text(label, color = ErSimTextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
@@ -797,7 +1008,7 @@ private fun ScreenTitle(title: String, subtitle: String?) {
 @Composable
 private fun SectionLabel(text: String) {
     Text(
-        text, color = ErSimTextMuted, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold,
+        text, color = ErSimCyan, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold,
         letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 6.dp)
     )
 }
@@ -825,31 +1036,46 @@ private fun PrimaryButton(text: String, icon: ImageVector, enabled: Boolean = tr
 }
 
 @Composable
-private fun SecondaryButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun SecondaryButton(
+    text: String,
+    accent: Color = ErSimMint,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     OutlinedButton(
         onClick = onClick,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, ErSimBorder),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = ErSimTextPrimary),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.55f)),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = accent.copy(alpha = 0.10f),
+            contentColor = accent
+        ),
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
         modifier = modifier
     ) {
-        Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(text, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
 @Composable
-private fun ToggleRow(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun ToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    iconTint: Color = ErSimMint,
+    onChange: (Boolean) -> Unit
+) {
     Surface(
         color = ErSimSurface,
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, ErSimBorder),
+        border = BorderStroke(1.dp, if (checked) iconTint.copy(alpha = 0.45f) else ErSimBorder),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onChange(!checked) }
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Icon(icon, contentDescription = null, tint = ErSimMint, modifier = Modifier.size(20.dp))
+            IconBadge(icon = icon, size = 36, accent = iconTint)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, color = ErSimTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -860,7 +1086,7 @@ private fun ToggleRow(icon: ImageVector, title: String, subtitle: String, checke
                 onCheckedChange = onChange,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = ErSimBg,
-                    checkedTrackColor = ErSimMint,
+                    checkedTrackColor = iconTint,
                     uncheckedThumbColor = ErSimTextMuted,
                     uncheckedTrackColor = ErSimRaisedSurface
                 )
@@ -885,9 +1111,14 @@ private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit
                     ThemeMode.LIGHT -> Icons.Default.LightMode
                     ThemeMode.DARK -> Icons.Default.DarkMode
                 }
+                val modeAccent = when (mode) {
+                    ThemeMode.SYSTEM -> ErSimCyan
+                    ThemeMode.LIGHT -> ErSimAmber
+                    ThemeMode.DARK -> ErSimViolet
+                }
                 Surface(
-                    color = if (isOn) ErSimMint else Color.Transparent,
-                    contentColor = if (isOn) ErSimBg else ErSimTextPrimary,
+                    color = if (isOn) modeAccent else Color.Transparent,
+                    contentColor = if (isOn) Color(0xFF06151C) else ErSimTextPrimary,
                     shape = RoundedCornerShape(9.dp),
                     modifier = Modifier
                         .weight(1f)
@@ -901,7 +1132,7 @@ private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit
                     ) {
                         Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(mode.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(mode.label, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -910,23 +1141,31 @@ private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit
 }
 
 @Composable
-private fun ActionRow(icon: ImageVector, title: String, subtitle: String, danger: Boolean = false, onClick: () -> Unit) {
+private fun ActionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    danger: Boolean = false,
+    iconTint: Color = ErSimMint,
+    onClick: () -> Unit
+) {
+    val accent = if (danger) ErSimRed else iconTint
     Surface(
         color = ErSimSurface,
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, ErSimBorder),
+        border = BorderStroke(1.dp, if (danger) ErSimRed.copy(alpha = 0.45f) else ErSimBorder),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
-            Icon(icon, contentDescription = null, tint = if (danger) ErSimRed else ErSimMint, modifier = Modifier.size(20.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            IconBadge(icon = icon, size = 36, accent = accent)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, color = if (danger) ErSimRed else ErSimTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, color = ErSimTextMuted, fontSize = 12.sp)
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ErSimTextMuted)
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = accent)
         }
     }
 }

@@ -20,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -273,245 +275,278 @@ private fun ErSimTopHeaderBar(
 ) {
     val room = uiState.activeRoom
     val activeCase = uiState.activeCase
+    val caseAccent = ClinicalSeverityEngine.categoryAccent(activeCase.scenarioCategory, activeCase.isPediatricOrInfant)
 
     Surface(
         color = ErSimHeaderBg,
         border = BorderStroke(1.dp, ErSimBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        ) {
-            // Top Row: ER SIM Branding + Bay/Scenario Indicator + Utility Icons
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                if (onNavigateHome != null) {
-                    IconButton(
-                        onClick = onNavigateHome,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .testTag("sim_home_button")
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back to Home",
-                            tint = ErSimTextPrimary
-                        )
-                    }
-                }
-                Column {
-                    Text(
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = ErSimTextPrimary, fontWeight = FontWeight.Black)) {
-                                append("ER ")
-                            }
-                            withStyle(SpanStyle(color = ErSimMint, fontWeight = FontWeight.Black)) {
-                                append("SIM")
-                            }
-                        },
-                        fontSize = 22.sp,
-                        letterSpacing = 1.8.sp
-                    )
-                    Text(
-                        text = "IMMERSIVE EMERGENCY MEDICINE",
-                        color = ErSimTextMuted,
-                        fontSize = 10.sp,
-                        letterSpacing = 1.1.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                }
-
-                // Bay & Scenario Indicator Chip (Tappable to open 20 Oral Board Scenarios)
-                Surface(
-                    color = ErSimRaisedSurface,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, ErSimBorder),
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .padding(horizontal = 8.dp)
-                        .testTag("open_20_scenarios_btn")
-                        .clickable { onOpenScenarioPicker() }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.MenuBook,
-                            contentDescription = "Select Scenario",
-                            tint = ErSimMint,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Column {
-                            Text(
-                                text = "${room.roomId} • Case #${activeCase.caseNumber}",
-                                color = ErSimMint,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Text(
-                                text = activeCase.scenarioCategory,
-                                color = ErSimTextPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Icon(
-                            Icons.Default.ArrowDropDown,
-                            contentDescription = null,
-                            tint = ErSimTextMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                // Quick Utility Icons (Admin Engine, Tablet, Audio)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    IconButton(
-                        onClick = onOpenAdminEngine,
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("open_instructor_admin_btn")
-                    ) {
-                        Icon(
-                            Icons.Default.AdminPanelSettings,
-                            contentDescription = "Instructor Question Engine & Admin Room",
-                            tint = ErSimAmber
-                        )
-                    }
-                    IconButton(
-                        onClick = onOpenFullScreenTablet,
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("hud_fullscreen_tablet_btn")
-                    ) {
-                        Icon(
-                            Icons.Default.TabletMac,
-                            contentDescription = "Full-Screen Virtual Tablet",
-                            tint = ErSimMint
-                        )
-                    }
-                    IconButton(
-                        onClick = onToggleAudio,
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("hud_audio_toggle_btn")
-                    ) {
-                        Icon(
-                            imageVector = if (uiState.isAudioEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                            contentDescription = "Toggle Resus Bay Audio",
-                            tint = if (uiState.isAudioEnabled) ErSimMint else ErSimTextMuted
-                        )
-                    }
-                }
-            }
-
-            // Second Row: Clinical Time + Pause/Resume + Restart + End Case + Map/Joystick/Alarm Controls
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Vibrant clinical spectrum accent strip along the top edge
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
+                    .height(3.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(ErSimMint, ErSimCyan, ErSimViolet, ErSimRose, ErSimAmber)
+                        )
+                    )
+            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
+                // Top Row: ER SIM Branding + Bay/Scenario Indicator + Utility Icons
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Live Room Timer (Single Source of Truth from RoomTeamSession)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onNavigateHome != null) {
+                            IconButton(
+                                onClick = onNavigateHome,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("sim_home_button")
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back to Home",
+                                    tint = ErSimTextPrimary
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = buildAnnotatedString {
+                                    withStyle(SpanStyle(color = ErSimTextPrimary, fontWeight = FontWeight.Black)) {
+                                        append("ER ")
+                                    }
+                                    withStyle(SpanStyle(color = ErSimMint, fontWeight = FontWeight.Black)) {
+                                        append("SIM")
+                                    }
+                                },
+                                fontSize = 22.sp,
+                                letterSpacing = 1.8.sp
+                            )
+                            Text(
+                                text = "IMMERSIVE EMERGENCY MEDICINE",
+                                color = ErSimCyan,
+                                fontSize = 10.sp,
+                                letterSpacing = 1.1.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Bay & Scenario Indicator Chip (Category-color accented)
                     Surface(
-                        color = ErSimVitalWell,
+                        color = caseAccent.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, ErSimBorder)
+                        border = BorderStroke(1.dp, caseAccent.copy(alpha = 0.55f)),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .padding(horizontal = 8.dp)
+                            .testTag("open_20_scenarios_btn")
+                            .clickable { onOpenScenarioPicker() }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                         ) {
                             Icon(
-                                Icons.Default.Timer,
-                                contentDescription = "Clinical Timer",
-                                tint = ErSimMint,
+                                Icons.Default.MenuBook,
+                                contentDescription = "Select Scenario",
+                                tint = caseAccent,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Text(
-                                text = room.formattedTimer,
-                                color = ErSimTextPrimary,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.sp,
-                                modifier = Modifier.testTag("header_clinical_timer")
+                            Column {
+                                Text(
+                                    text = "${room.roomId} • Case #${activeCase.caseNumber}",
+                                    color = caseAccent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = activeCase.scenarioCategory,
+                                    color = ErSimTextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                tint = caseAccent,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
-                    // Pause / Resume Button
-                    ErSimHeaderActionButton(
-                        label = if (room.isTimerRunning) "Pause" else "Resume",
-                        isPrimary = !room.isTimerRunning,
-                        onClick = onToggleTimer,
-                        testTag = "header_pause_resume_btn"
-                    )
-
-                    // Restart Button
-                    ErSimHeaderActionButton(
-                        label = "Restart",
-                        onClick = onRestartCase,
-                        testTag = "header_restart_btn"
-                    )
-
-                    // End Case Button
-                    ErSimHeaderActionButton(
-                        label = "End Case",
-                        textColor = ErSimRed,
-                        onClick = onEndCase,
-                        testTag = "header_end_case_btn"
-                    )
-                }
-
-                Spacer(Modifier.width(8.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    ErSimHeaderActionButton(
-                        label = if (uiState.showJoystickControl) "Joystick ON" else "3D Joystick",
-                        textColor = if (uiState.showJoystickControl) ErSimMint else ErSimTextPrimary,
-                        onClick = onToggleJoystick,
-                        testTag = "header_joystick_btn"
-                    )
-                    if (uiState.isAudioEnabled) {
-                        ErSimHeaderActionButton(
-                            label = if (uiState.isAlarmSilenced) "Alarm Muted" else "Mute Alarm",
-                            textColor = if (uiState.isAlarmSilenced) ErSimTextMuted else ErSimAmber,
-                            onClick = onToggleAlarmSilence,
-                            testTag = "hud_alarm_silence_btn"
+                    // Quick Utility Icons (Color-coded tinted circles)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        HeaderIconPill(
+                            icon = Icons.Default.AdminPanelSettings,
+                            contentDescription = "Instructor Question Engine & Admin Room",
+                            accent = ErSimAmber,
+                            onClick = onOpenAdminEngine,
+                            testTag = "open_instructor_admin_btn"
+                        )
+                        HeaderIconPill(
+                            icon = Icons.Default.TabletMac,
+                            contentDescription = "Full-Screen Virtual Tablet",
+                            accent = ErSimCyan,
+                            onClick = onOpenFullScreenTablet,
+                            testTag = "hud_fullscreen_tablet_btn"
+                        )
+                        HeaderIconPill(
+                            icon = if (uiState.isAudioEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                            contentDescription = "Toggle Resus Bay Audio",
+                            accent = if (uiState.isAudioEnabled) ErSimMint else ErSimTextMuted,
+                            onClick = onToggleAudio,
+                            testTag = "hud_audio_toggle_btn"
                         )
                     }
-                    ErSimHeaderActionButton(
-                        label = "ER Map",
-                        textColor = ErSimMint,
-                        onClick = onOpenFullScreenMap,
-                        testTag = "header_er_map_btn"
-                    )
+                }
+
+                // Second Row: Clinical Time + Pause/Resume + Restart + End Case + Map/Joystick/Alarm Controls
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Live Room Timer (Single Source of Truth from RoomTeamSession)
+                        Surface(
+                            color = ErSimVitalWell,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.2.dp, MonitorCyan.copy(alpha = 0.65f))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Timer,
+                                    contentDescription = "Clinical Timer",
+                                    tint = MonitorCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = room.formattedTimer,
+                                    color = MonitorTextLight,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.testTag("header_clinical_timer")
+                                )
+                            }
+                        }
+
+                        // Pause / Resume Button
+                        ErSimHeaderActionButton(
+                            label = if (room.isTimerRunning) "Pause" else "Resume",
+                            isPrimary = !room.isTimerRunning,
+                            accentColor = ErSimAmber,
+                            onClick = onToggleTimer,
+                            testTag = "header_pause_resume_btn"
+                        )
+
+                        // Restart Button
+                        ErSimHeaderActionButton(
+                            label = "Restart",
+                            accentColor = ErSimSky,
+                            onClick = onRestartCase,
+                            testTag = "header_restart_btn"
+                        )
+
+                        // End Case Button
+                        ErSimHeaderActionButton(
+                            label = "End Case",
+                            accentColor = ErSimRed,
+                            tintedFill = true,
+                            onClick = onEndCase,
+                            testTag = "header_end_case_btn"
+                        )
+                    }
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        ErSimHeaderActionButton(
+                            label = if (uiState.showJoystickControl) "Joystick ON" else "3D Joystick",
+                            accentColor = if (uiState.showJoystickControl) ErSimViolet else ErSimTextMuted,
+                            tintedFill = uiState.showJoystickControl,
+                            onClick = onToggleJoystick,
+                            testTag = "header_joystick_btn"
+                        )
+                        if (uiState.isAudioEnabled) {
+                            ErSimHeaderActionButton(
+                                label = if (uiState.isAlarmSilenced) "Alarm Muted" else "Mute Alarm",
+                                accentColor = if (uiState.isAlarmSilenced) ErSimTextMuted else ErSimAmber,
+                                tintedFill = !uiState.isAlarmSilenced,
+                                onClick = onToggleAlarmSilence,
+                                testTag = "hud_alarm_silence_btn"
+                            )
+                        }
+                        ErSimHeaderActionButton(
+                            label = "ER Map",
+                            accentColor = ErSimCyan,
+                            tintedFill = true,
+                            onClick = onOpenFullScreenMap,
+                            testTag = "header_er_map_btn"
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun HeaderIconPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    accent: Color,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    Surface(
+        color = accent.copy(alpha = 0.14f),
+        shape = CircleShape,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .size(38.dp)
+            .testTag(testTag)
+            .clickable { onClick() }
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = accent,
+                modifier = Modifier.size(19.dp)
+            )
         }
     }
 }
@@ -520,14 +555,26 @@ private fun ErSimTopHeaderBar(
 private fun ErSimHeaderActionButton(
     label: String,
     isPrimary: Boolean = false,
-    textColor: Color = ErSimTextPrimary,
+    accentColor: Color = ErSimTextPrimary,
+    tintedFill: Boolean = false,
     onClick: () -> Unit,
     testTag: String
 ) {
     Surface(
-        color = if (isPrimary) ErSimMint else ErSimRaisedSurface,
+        color = when {
+            isPrimary -> ErSimMint
+            tintedFill -> accentColor.copy(alpha = 0.15f)
+            else -> ErSimRaisedSurface
+        },
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, if (isPrimary) ErSimMint else ErSimBorder),
+        border = BorderStroke(
+            1.dp,
+            when {
+                isPrimary -> ErSimMint
+                tintedFill -> accentColor.copy(alpha = 0.65f)
+                else -> ErSimBorder
+            }
+        ),
         modifier = Modifier
             .minimumInteractiveComponentSize()
             .testTag(testTag)
@@ -539,8 +586,8 @@ private fun ErSimHeaderActionButton(
         ) {
             Text(
                 text = label,
-                color = if (isPrimary) Color(0xFF06211B) else textColor,
-                fontWeight = if (isPrimary) FontWeight.ExtraBold else FontWeight.SemiBold,
+                color = if (isPrimary) Color(0xFF06211B) else accentColor,
+                fontWeight = if (isPrimary || tintedFill) FontWeight.ExtraBold else FontWeight.SemiBold,
                 fontSize = 12.sp
             )
         }
@@ -559,10 +606,38 @@ fun ContinuousPatientMonitoringCard(
     val room = uiState.activeRoom
     val activeCase = uiState.activeCase
     val vitals = uiState.currentVitals
+    val isPeds = activeCase.isPediatricOrInfant
     val q0Unlocked = room.unlockedGates.contains(QuestionGateType.Q0_GATE)
+
+    // Live clinical severity assessment for every parameter
+    val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, onDarkMonitorWell = true)
+    val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, onDarkMonitorWell = true)
+    val spo2Style = ClinicalSeverityEngine.assessSpo2(vitals.spo2, onDarkMonitorWell = true)
+    val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, onDarkMonitorWell = true)
+    val tempStyle = ClinicalSeverityEngine.assessTemp(vitals.tempCelsius, onDarkMonitorWell = true)
+    val etco2Style = ClinicalSeverityEngine.assessEtco2(vitals.etco2, onDarkMonitorWell = true)
+    val rhythmSeverity = ClinicalSeverityEngine.assessRhythm(vitals.rhythmLabel)
+    val criticalTags = if (q0Unlocked) ClinicalSeverityEngine.criticalVitalTags(vitals, isPeds) else emptyList()
+
+    // Subtle critical pulse animation for life-threatening vitals
+    val pulseTransition = rememberInfiniteTransition(label = "critical_vital_pulse")
+    val criticalPulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(750, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "critical_pulse_alpha"
+    )
 
     ErSimPanelContainer(
         title = "CONTINUOUS PATIENT MONITORING",
+        accentColor = when {
+            !q0Unlocked -> ErSimAmber
+            criticalTags.isNotEmpty() -> ErSimRed
+            else -> ErSimMint
+        },
         trailingHeader = {
             if (!q0Unlocked) {
                 Surface(
@@ -580,16 +655,78 @@ fun ContinuousPatientMonitoringCard(
                     )
                 }
             } else {
-                Text(
-                    text = "${vitals.rhythmLabel} • T ${vitals.tempCelsius}°C",
-                    color = ErSimMint,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Temperature mini severity pill
+                    Surface(
+                        color = tempStyle.containerTint,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, tempStyle.borderColor)
+                    ) {
+                        Text(
+                            text = "T ${vitals.tempCelsius}°C",
+                            color = tempStyle.accent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                    // EtCO2 mini severity pill
+                    Surface(
+                        color = etco2Style.containerTint,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, etco2Style.borderColor)
+                    ) {
+                        Text(
+                            text = "EtCO₂ ${vitals.etco2}",
+                            color = etco2Style.accent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                }
             }
         },
         modifier = modifier
     ) {
+        // Critical Values Alert Strip when any vital is in the critical zone
+        if (q0Unlocked && criticalTags.isNotEmpty()) {
+            Surface(
+                color = MonitorRed.copy(alpha = 0.16f * criticalPulseAlpha),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.3.dp, MonitorRed.copy(alpha = criticalPulseAlpha)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 9.dp)
+                    .testTag("critical_vitals_alert_banner")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(MonitorRed.copy(alpha = criticalPulseAlpha))
+                    )
+                    Text(
+                        text = "CRITICAL VALUES (${criticalTags.size}): ${criticalTags.joinToString(" • ")}",
+                        color = MonitorRed,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
         // 4 Vitals Grid (2x2 on Portrait, 4-across on wide)
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val isFourCol = maxWidth >= 520.dp
@@ -603,10 +740,10 @@ fun ContinuousPatientMonitoringCard(
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    ErSimVitalTile("HEART RATE", hrText, "bpm", ErSimMint, Modifier.weight(1f))
-                    ErSimVitalTile("BLOOD PRESSURE", bpText, "mmHg", ErSimRed, Modifier.weight(1f))
-                    ErSimVitalTile("OXYGEN SATURATION", spo2Text, "%", ErSimAmber, Modifier.weight(1f))
-                    ErSimVitalTile("RESPIRATORY RATE", rrText, "/min", ErSimTextPrimary, Modifier.weight(1f))
+                    ErSimVitalTile("HEART RATE", hrText, "bpm", q0Unlocked, hrStyle, criticalPulseAlpha, Modifier.weight(1f))
+                    ErSimVitalTile("BLOOD PRESSURE", bpText, "mmHg", q0Unlocked, bpStyle, criticalPulseAlpha, Modifier.weight(1f))
+                    ErSimVitalTile("OXYGEN SAT", spo2Text, "%", q0Unlocked, spo2Style, criticalPulseAlpha, Modifier.weight(1f))
+                    ErSimVitalTile("RESP RATE", rrText, "/min", q0Unlocked, rrStyle, criticalPulseAlpha, Modifier.weight(1f))
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -614,15 +751,15 @@ fun ContinuousPatientMonitoringCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        ErSimVitalTile("HEART RATE", hrText, "bpm", ErSimMint, Modifier.weight(1f))
-                        ErSimVitalTile("BLOOD PRESSURE", bpText, "mmHg", ErSimRed, Modifier.weight(1f))
+                        ErSimVitalTile("HEART RATE", hrText, "bpm", q0Unlocked, hrStyle, criticalPulseAlpha, Modifier.weight(1f))
+                        ErSimVitalTile("BLOOD PRESSURE", bpText, "mmHg", q0Unlocked, bpStyle, criticalPulseAlpha, Modifier.weight(1f))
                     }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        ErSimVitalTile("OXYGEN SATURATION", spo2Text, "%", ErSimAmber, Modifier.weight(1f))
-                        ErSimVitalTile("RESPIRATORY RATE", rrText, "/min", ErSimTextPrimary, Modifier.weight(1f))
+                        ErSimVitalTile("OXYGEN SAT", spo2Text, "%", q0Unlocked, spo2Style, criticalPulseAlpha, Modifier.weight(1f))
+                        ErSimVitalTile("RESP RATE", rrText, "/min", q0Unlocked, rrStyle, criticalPulseAlpha, Modifier.weight(1f))
                     }
                 }
             }
@@ -630,11 +767,20 @@ fun ContinuousPatientMonitoringCard(
 
         Spacer(Modifier.height(10.dp))
 
-        // Live Scrolling Monitor ECG Waveform Strip
+        // Live Scrolling Monitor ECG Waveform Strip (color-coded by rhythm & stability severity)
+        val ecgSeverity = when {
+            !q0Unlocked -> ClinicalSeverity.NORMAL
+            (activeCase.caseNumber == 10 || activeCase.caseNumber == 17) && !room.isPatientStabilized -> ClinicalSeverity.CRITICAL
+            rhythmSeverity == ClinicalSeverity.CRITICAL || hrStyle.isCritical -> ClinicalSeverity.CRITICAL
+            rhythmSeverity == ClinicalSeverity.HIGH || hrStyle.severity == ClinicalSeverity.HIGH -> ClinicalSeverity.HIGH
+            rhythmSeverity == ClinicalSeverity.LOW || hrStyle.severity == ClinicalSeverity.LOW -> ClinicalSeverity.LOW
+            else -> ClinicalSeverity.NORMAL
+        }
         ReusableMonitorEcgWaveStrip(
             q0Unlocked = q0Unlocked,
             caseNumber = activeCase.caseNumber,
             isStabilized = room.isPatientStabilized,
+            ecgSeverity = ecgSeverity,
             rhythmLabel = if (q0Unlocked) "LIVE TELEMETRY ECG — ${vitals.rhythmLabel.uppercase()}"
             else "TELEMETRY LOCKED — CRACK INITIAL QUESTION (Q0) TO UNLOCK VITALS & TABLET"
         )
@@ -646,33 +792,74 @@ private fun ErSimVitalTile(
     label: String,
     value: String,
     unit: String,
-    valueColor: Color,
+    q0Unlocked: Boolean,
+    style: ClinicalColorStyle,
+    pulseAlpha: Float,
     modifier: Modifier = Modifier
 ) {
+    val activeAccent = if (q0Unlocked) style.accent else MonitorAmber
+    val borderWidth = if (q0Unlocked && style.isCritical) 1.8.dp else 1.dp
+    val borderColor = when {
+        !q0Unlocked -> ErSimBorder.copy(alpha = 0.65f)
+        style.isCritical -> style.accent.copy(alpha = pulseAlpha)
+        else -> style.borderColor
+    }
+    val surfaceBg = when {
+        !q0Unlocked -> ErSimVitalWell
+        style.isCritical -> Color(0xFF1F0A14)
+        style.severity == ClinicalSeverity.HIGH -> Color(0xFF1C1609)
+        style.severity == ClinicalSeverity.LOW -> Color(0xFF081B2C)
+        else -> ErSimVitalWell
+    }
+
     Surface(
-        color = ErSimVitalWell,
+        color = surfaceBg,
         shape = RoundedCornerShape(11.dp),
-        border = BorderStroke(1.dp, ErSimBorder.copy(alpha = 0.65f)),
+        border = BorderStroke(borderWidth, borderColor),
         modifier = modifier
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text(
-                text = label,
-                color = ErSimTextMuted,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.6.sp
-            )
+        Column(modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = label,
+                    color = MonitorTextMuted,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (q0Unlocked) {
+                    Surface(
+                        color = if (style.isCritical) style.accent else style.accent.copy(alpha = 0.20f),
+                        shape = RoundedCornerShape(5.dp)
+                    ) {
+                        Text(
+                            text = style.badgeText,
+                            color = if (style.isCritical) Color(0xFF1B0308) else style.accent,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.4.sp,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
             Text(
                 text = value,
-                color = valueColor,
-                fontSize = if (value == "LOCKED") 17.sp else 26.sp,
+                color = activeAccent,
+                fontSize = if (value == "LOCKED") 16.sp else 25.sp,
                 fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.padding(vertical = 3.dp)
             )
             Text(
                 text = unit,
-                color = ErSimTextMuted,
+                color = MonitorTextMuted,
                 fontSize = 10.sp
             )
         }
@@ -685,6 +872,7 @@ fun ReusableMonitorEcgWaveStrip(
     caseNumber: Int,
     isStabilized: Boolean,
     rhythmLabel: String,
+    ecgSeverity: ClinicalSeverity = ClinicalSeverity.NORMAL,
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "ersim_ecg_wave")
@@ -697,11 +885,18 @@ fun ReusableMonitorEcgWaveStrip(
         ),
         label = "ersim_ecg_phase"
     )
+    val traceColor = when {
+        !q0Unlocked -> MonitorTextMuted
+        ecgSeverity == ClinicalSeverity.CRITICAL -> MonitorRed
+        ecgSeverity == ClinicalSeverity.HIGH -> MonitorAmber
+        ecgSeverity == ClinicalSeverity.LOW -> MonitorSky
+        else -> MonitorMint
+    }
 
     Surface(
         color = ErSimWaveWell,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, ErSimBorder.copy(alpha = 0.5f)),
+        border = BorderStroke(1.2.dp, if (q0Unlocked) traceColor.copy(alpha = 0.55f) else ErSimBorder.copy(alpha = 0.5f)),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
@@ -712,6 +907,17 @@ fun ReusableMonitorEcgWaveStrip(
             ) {
                 val w = size.width
                 val h = size.height
+                // Subtle clinical oscilloscope grid
+                val gridColor = traceColor.copy(alpha = 0.11f)
+                for (gx in 1..9) {
+                    val x = w * (gx / 10f)
+                    drawLine(gridColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+                }
+                for (gy in 1..3) {
+                    val y = h * (gy / 4f)
+                    drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+                }
+
                 val path = Path()
                 val steps = 110
                 for (i in 0..steps) {
@@ -732,20 +938,49 @@ fun ReusableMonitorEcgWaveStrip(
                     val py = h * 0.58f + yOff
                     if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
                 }
+                // Soft glow under waveform + crisp core trace
                 drawPath(
                     path = path,
-                    color = if (q0Unlocked) ErSimMint else ErSimTextMuted,
+                    color = traceColor.copy(alpha = 0.28f),
+                    style = Stroke(width = 6.5f)
+                )
+                drawPath(
+                    path = path,
+                    color = traceColor,
                     style = Stroke(width = 2.6f)
                 )
             }
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = rhythmLabel,
-                color = if (q0Unlocked) ErSimMint else ErSimAmber,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.8.sp
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = rhythmLabel,
+                    color = if (q0Unlocked) traceColor else MonitorAmber,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.8.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (q0Unlocked && ecgSeverity != ClinicalSeverity.NORMAL) {
+                    Surface(
+                        color = traceColor.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = ecgSeverity.shortBadge,
+                            color = traceColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1080,8 +1315,15 @@ private fun ClinicalWorkspaceTabsCard(
     val q2Unlocked = room.unlockedGates.contains(QuestionGateType.Q2_LABS)
     val q3Unlocked = room.unlockedGates.contains(QuestionGateType.Q3_IMAGING)
 
-    ErSimPanelContainer(title = "CLINICAL CHART & DIAGNOSTIC WORKSPACE") {
-        // Horizontal Scrollable Tab Pills
+    val criticalLabCount = remember(activeCase) {
+        (activeCase.abgVbgReports + activeCase.labReports).count { it.flag == LabFlag.CRITICAL }
+    }
+
+    ErSimPanelContainer(
+        title = "CLINICAL CHART & DIAGNOSTIC WORKSPACE",
+        accentColor = ErSimCyan
+    ) {
+        // Horizontal Scrollable Tab Pills (Color-coded by clinical workspace domain)
         Row(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier
@@ -1098,15 +1340,25 @@ private fun ClinicalWorkspaceTabsCard(
                     ErSimWorkspaceTab.EXAMINATION -> q1Unlocked
                     ErSimWorkspaceTab.INVESTIGATIONS -> q2Unlocked || q3Unlocked
                 }
+                val tabAccent = when (tab) {
+                    ErSimWorkspaceTab.PATIENT_OVERVIEW -> ErSimMint
+                    ErSimWorkspaceTab.HISTORY -> ErSimSky
+                    ErSimWorkspaceTab.XABCDE -> ErSimAmber
+                    ErSimWorkspaceTab.EXAMINATION -> ErSimViolet
+                    ErSimWorkspaceTab.INVESTIGATIONS -> ErSimCyan
+                    ErSimWorkspaceTab.TREATMENT -> ErSimRose
+                }
+                val showCritLabPill = tab == ErSimWorkspaceTab.INVESTIGATIONS && q2Unlocked && criticalLabCount > 0
 
                 Surface(
-                    color = if (isSelected) ErSimMint else ErSimRaisedSurface,
+                    color = if (isSelected) tabAccent else tabAccent.copy(alpha = 0.10f),
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(
                         1.dp,
                         when {
-                            isSelected -> ErSimMint
-                            isGateUnlocked -> ErSimBorder
+                            isSelected -> tabAccent
+                            showCritLabPill -> ErSimRed
+                            isGateUnlocked -> tabAccent.copy(alpha = 0.45f)
                             else -> ErSimAmber.copy(alpha = 0.7f)
                         }
                     ),
@@ -1124,16 +1376,30 @@ private fun ClinicalWorkspaceTabsCard(
                             Icon(
                                 Icons.Default.Lock,
                                 contentDescription = "Locked",
-                                tint = if (isSelected) Color(0xFF06211B) else ErSimAmber,
+                                tint = if (isSelected) Color(0xFF06151C) else ErSimAmber,
                                 modifier = Modifier.size(13.dp)
                             )
                         }
                         Text(
                             text = tab.title,
-                            color = if (isSelected) Color(0xFF06211B) else ErSimTextPrimary,
+                            color = if (isSelected) Color(0xFF06151C) else ErSimTextPrimary,
                             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
                             fontSize = 12.sp
                         )
+                        if (showCritLabPill) {
+                            Surface(
+                                color = ErSimRed,
+                                shape = RoundedCornerShape(5.dp)
+                            ) {
+                                Text(
+                                    text = "$criticalLabCount!",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1244,11 +1510,11 @@ private fun ClinicalWorkspaceTabsCard(
                             )
                         } else {
                             val s = activeCase.primarySurvey
-                            ErSimKeyValueLine("Airway", s.airway)
-                            ErSimKeyValueLine("Breathing", s.breathing)
-                            ErSimKeyValueLine("Circulation", s.circulation)
-                            ErSimKeyValueLine("Disability", s.disability)
-                            ErSimKeyValueLine("Exposure", s.exposure)
+                            ErSimKeyValueLine("A", "Airway", s.airway, MonitorSky)
+                            ErSimKeyValueLine("B", "Breathing", s.breathing, MonitorCyan)
+                            ErSimKeyValueLine("C", "Circulation", s.circulation, MonitorRed)
+                            ErSimKeyValueLine("D", "Disability", s.disability, MonitorViolet)
+                            ErSimKeyValueLine("E", "Exposure", s.exposure, MonitorAmber)
                         }
                     }
 
@@ -1343,31 +1609,89 @@ private fun ClinicalWorkspaceTabsCard(
                             )
                         } else {
                             val allLabs = activeCase.abgVbgReports + activeCase.labReports
+                            val critCount = allLabs.count { it.flag == LabFlag.CRITICAL }
+                            val highCount = allLabs.count { it.flag == LabFlag.HIGH }
+                            val lowCount = allLabs.count { it.flag == LabFlag.LOW }
+                            val normCount = allLabs.count { it.flag == LabFlag.NORMAL }
+
+                            // Color-coded severity summary strip
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                            ) {
+                                if (critCount > 0) LabSeveritySummaryChip("$critCount CRITICAL", MonitorRed, filled = true)
+                                if (highCount > 0) LabSeveritySummaryChip("$highCount HIGH", MonitorAmber)
+                                if (lowCount > 0) LabSeveritySummaryChip("$lowCount LOW", MonitorSky)
+                                LabSeveritySummaryChip("$normCount NORMAL", MonitorMint)
+                            }
+
                             allLabs.forEach { lab ->
-                                val flagColor = when (lab.flag) {
-                                    LabFlag.CRITICAL -> ErSimRed
-                                    LabFlag.HIGH -> ErSimAmber
-                                    LabFlag.LOW -> Spo2Sky
-                                    LabFlag.NORMAL -> ErSimMint
-                                }
-                                Row(
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(ErSimSurface, RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                                val style = ClinicalSeverityEngine.labStyle(lab.flag, onDarkMonitorWell = true)
+                                Surface(
+                                    color = style.containerTint,
+                                    shape = RoundedCornerShape(9.dp),
+                                    border = BorderStroke(
+                                        if (style.isCritical) 1.5.dp else 1.dp,
+                                        style.borderColor
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(lab.testName, color = ErSimTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                        Text("${lab.category} (Ref: ${lab.referenceRange})", color = ErSimTextMuted, fontSize = 10.sp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(4.dp)
+                                                .fillMaxHeight()
+                                                .background(style.accent)
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = lab.testName,
+                                                    color = MonitorTextLight,
+                                                    fontWeight = if (style.isCritical) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                                    fontSize = 12.sp
+                                                )
+                                                Text(
+                                                    text = "${lab.category} • Ref: ${lab.referenceRange}",
+                                                    color = MonitorTextMuted,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                            Spacer(Modifier.width(8.dp))
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text(
+                                                    text = "${lab.value} ${lab.unit}".trim(),
+                                                    color = style.accent,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 13.5.sp
+                                                )
+                                                Spacer(Modifier.height(2.dp))
+                                                Surface(
+                                                    color = if (style.isCritical) style.accent else style.accent.copy(alpha = 0.22f),
+                                                    shape = RoundedCornerShape(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = style.badgeText,
+                                                        color = if (style.isCritical) Color(0xFF1B0308) else style.accent,
+                                                        fontWeight = FontWeight.Black,
+                                                        fontSize = 8.5.sp,
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
-                                    Text(
-                                        text = "${lab.value} ${lab.unit}".trim(),
-                                        color = flagColor,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 13.sp
-                                    )
                                 }
                             }
                         }
@@ -1379,7 +1703,7 @@ private fun ClinicalWorkspaceTabsCard(
                         // Part B: 12-Lead ECG & Diagnostic Imaging CT/MRI/USG/X-Ray (Gated strictly by Q3_IMAGING)
                         Text(
                             text = "2. 12-LEAD ECG & DIAGNOSTIC IMAGING (CT / MRI / USG / X-RAY) (Q3)",
-                            color = ErSimMint,
+                            color = MonitorCyan,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 12.sp
                         )
@@ -1391,30 +1715,57 @@ private fun ClinicalWorkspaceTabsCard(
                             )
                         } else {
                             activeCase.imagingAndEcg.forEach { study ->
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(ErSimSurface, RoundedCornerShape(10.dp))
-                                        .padding(10.dp)
+                                val modColor = when (study.modality.uppercase()) {
+                                    "ECG" -> MonitorRed
+                                    "CT", "MRI" -> MonitorViolet
+                                    "USG" -> MonitorCyan
+                                    else -> MonitorSky
+                                }
+                                Surface(
+                                    color = ErSimSurface,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, modColor.copy(alpha = 0.55f)),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = "${study.modality}: ${study.title} (${study.figureRef})",
-                                        color = ErSimAmber,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                    ClinicalImagingFigureViewer(study = study)
-                                    Text("Findings: ${study.findings}", color = ErSimTextPrimary, fontSize = 12.sp)
-                                    Text("Impression: ${study.impression}", color = ErSimMint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(10.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Surface(
+                                                color = modColor.copy(alpha = 0.20f),
+                                                shape = RoundedCornerShape(5.dp)
+                                            ) {
+                                                Text(
+                                                    text = study.modality,
+                                                    color = modColor,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 10.sp,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = "${study.title} (${study.figureRef})",
+                                                color = ErSimTextPrimary,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                        ClinicalImagingFigureViewer(study = study)
+                                        Text("Findings: ${study.findings}", color = ErSimTextPrimary, fontSize = 12.sp)
+                                        Text("Impression: ${study.impression}", color = MonitorMint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
                                 }
                             }
                             OutlinedButton(
                                 onClick = { onOpenFullScreenTablet(TabletTab.ECG_IMAGING) },
-                                border = BorderStroke(1.dp, ErSimMint),
+                                border = BorderStroke(1.dp, MonitorCyan),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Open Full-Screen Virtual Tablet Imaging Viewer", color = ErSimMint, fontWeight = FontWeight.Bold)
+                                Text("Open Full-Screen Virtual Tablet Imaging Viewer", color = MonitorCyan, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1511,10 +1862,62 @@ private fun ClinicalWorkspaceTabsCard(
 }
 
 @Composable
-private fun ErSimKeyValueLine(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = 2.dp)) {
-        Text(text = label.uppercase(), color = ErSimAmber, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
-        Text(text = value, color = ErSimTextPrimary, fontSize = 13.sp, lineHeight = 19.sp)
+private fun LabSeveritySummaryChip(
+    label: String,
+    accent: Color,
+    filled: Boolean = false
+) {
+    Surface(
+        color = if (filled) accent else accent.copy(alpha = 0.16f),
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.7f))
+    ) {
+        Text(
+            text = label,
+            color = if (filled) Color(0xFF1B0308) else accent,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+        )
+    }
+}
+
+@Composable
+private fun ErSimKeyValueLine(
+    letter: String,
+    label: String,
+    value: String,
+    accent: Color
+) {
+    Surface(
+        color = accent.copy(alpha = 0.09f),
+        shape = RoundedCornerShape(9.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.38f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(10.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(26.dp)
+                    .background(accent.copy(alpha = 0.22f), CircleShape)
+            ) {
+                Text(
+                    text = letter,
+                    color = accent,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = label.uppercase(), color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                Text(text = value, color = MonitorTextLight, fontSize = 12.5.sp, lineHeight = 18.sp)
+            }
+        }
     }
 }
 
@@ -1577,13 +1980,17 @@ private fun ClinicalActionConsoleCard(
     val q2Unlocked = room.unlockedGates.contains(QuestionGateType.Q2_LABS)
     val q3Unlocked = room.unlockedGates.contains(QuestionGateType.Q3_IMAGING)
 
-    ErSimPanelContainer(title = "CLINICAL ACTION CONSOLE") {
+    ErSimPanelContainer(
+        title = "CLINICAL ACTION CONSOLE",
+        accentColor = ErSimRose
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // Row 1: XABCDE | Oxygen
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 ErSimConsoleActionButton(
                     title = "🩺 XABCDE",
                     subtitle = if (q1Unlocked) "Primary Survey & Exam" else "Crack Q1 to Unlock",
+                    accentColor = ErSimMint,
                     onClick = {
                         if (!q1Unlocked) {
                             onOpenQuestionGate(QuestionGateType.Q1_SURVEY)
@@ -1598,6 +2005,7 @@ private fun ClinicalActionConsoleCard(
                 ErSimConsoleActionButton(
                     title = "🫁 Oxygen",
                     subtitle = "Ventilator & O₂ (Drawer 4)",
+                    accentColor = ErSimSky,
                     onClick = {
                         onSelectSideDrawerTab(SideDrawerTab.STABILIZE)
                     },
@@ -1611,6 +2019,7 @@ private fun ClinicalActionConsoleCard(
                 ErSimConsoleActionButton(
                     title = "💉 IV Access",
                     subtitle = "Cannulas & IO (Drawer 2)",
+                    accentColor = ErSimCyan,
                     onClick = {
                         onOpenCrashCart(2)
                     },
@@ -1620,6 +2029,7 @@ private fun ClinicalActionConsoleCard(
                 ErSimConsoleActionButton(
                     title = "🧪 Blood Tests",
                     subtitle = if (q2Unlocked) "Labs & ABG/VBG Report" else "Crack Q2 to Unlock",
+                    accentColor = ErSimViolet,
                     onClick = {
                         if (!q2Unlocked) {
                             onOpenQuestionGate(QuestionGateType.Q2_LABS)
@@ -1638,6 +2048,7 @@ private fun ClinicalActionConsoleCard(
                 ErSimConsoleActionButton(
                     title = "❤️ ECG",
                     subtitle = if (q3Unlocked) "12-Lead ECG & Imaging" else "Crack Q3 to Unlock",
+                    accentColor = ErSimRose,
                     onClick = {
                         if (!q3Unlocked) {
                             onOpenQuestionGate(QuestionGateType.Q3_IMAGING)
@@ -1652,6 +2063,7 @@ private fun ClinicalActionConsoleCard(
                 ErSimConsoleActionButton(
                     title = "💊 Medications",
                     subtitle = "Emergency Drugs (Drawer 1)",
+                    accentColor = ErSimAmber,
                     onClick = {
                         onOpenCrashCart(1)
                     },
@@ -1665,6 +2077,7 @@ private fun ClinicalActionConsoleCard(
                 ErSimConsoleActionButton(
                     title = "🧰 Crash Cart",
                     subtitle = "CODE 100 (6 Drawers)",
+                    accentColor = ErSimRed,
                     onClick = {
                         onOpenCrashCart(null)
                     },
@@ -1674,6 +2087,7 @@ private fun ClinicalActionConsoleCard(
                 ErSimConsoleActionButton(
                     title = "📞 Call Team",
                     subtitle = "Team Comms & Attending",
+                    accentColor = ErSimOrange,
                     onClick = {
                         onSelectSideDrawerTab(SideDrawerTab.COMMUNICATE)
                     },
@@ -1689,36 +2103,49 @@ private fun ClinicalActionConsoleCard(
 private fun ErSimConsoleActionButton(
     title: String,
     subtitle: String,
+    accentColor: Color,
     onClick: () -> Unit,
     testTag: String,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = ErSimRaisedSurface,
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, ErSimBorder),
+        color = accentColor.copy(alpha = 0.11f),
+        shape = RoundedCornerShape(11.dp),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.50f)),
         modifier = modifier
-            .heightIn(min = 56.dp)
+            .heightIn(min = 58.dp)
             .testTag(testTag)
             .clickable { onClick() }
     ) {
-        Column(
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
         ) {
-            Text(
-                text = title,
-                color = ErSimTextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(accentColor)
             )
-            Text(
-                text = subtitle,
-                color = ErSimTextMuted,
-                fontSize = 10.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column(
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    text = title,
+                    color = ErSimTextPrimary,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = subtitle,
+                    color = accentColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -1734,7 +2161,8 @@ private fun ClinicalTimelineCard(
     val events = remember(room.chatMessages) { room.chatMessages.asReversed() }
 
     ErSimPanelContainer(
-        title = "CLINICAL TIMELINE (${events.size} RECORDED ROOM EVENTS)"
+        title = "CLINICAL TIMELINE (${events.size} RECORDED ROOM EVENTS)",
+        accentColor = ErSimViolet
     ) {
         if (events.isEmpty()) {
             Text(
@@ -1748,40 +2176,60 @@ private fun ClinicalTimelineCard(
                     val tagColor = when (msg.roleTag) {
                         "INSTRUCTOR" -> ErSimAmber
                         "CRASH_CART" -> ErSimRed
-                        "TEAM" -> ErSimMint
-                        else -> ErSimTextMuted
+                        "TEAM" -> ErSimCyan
+                        else -> ErSimMint
                     }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp)
+                    Surface(
+                        color = tagColor.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(9.dp),
+                        border = BorderStroke(1.dp, tagColor.copy(alpha = 0.30f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "${msg.timestampLabel} • ${msg.sender}",
-                                color = tagColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold
+                        Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                            Box(
+                                modifier = Modifier
+                                    .width(3.5.dp)
+                                    .fillMaxHeight()
+                                    .background(tagColor)
                             )
-                            Text(
-                                text = msg.roleTag,
-                                color = ErSimTextMuted,
-                                fontSize = 10.sp
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "${msg.timestampLabel} • ${msg.sender}",
+                                        color = tagColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Surface(
+                                        color = tagColor.copy(alpha = 0.18f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = msg.roleTag,
+                                            color = tagColor,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    text = msg.text,
+                                    color = ErSimTextPrimary,
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp
+                                )
+                            }
                         }
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = msg.text,
-                            color = ErSimTextPrimary,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        HorizontalDivider(color = ErSimBorder.copy(alpha = 0.65f))
                     }
                 }
             }
@@ -1790,19 +2238,20 @@ private fun ClinicalTimelineCard(
 }
 
 // ============================================================================
-// REUSABLE ER SIM PANEL WRAPPER (#102234 Surface, #29445A Border, 15.dp Radius)
+// REUSABLE ER SIM PANEL WRAPPER (#102234 Surface, Accent Dot Header, 15.dp Radius)
 // ============================================================================
 @Composable
 fun ErSimPanelContainer(
     title: String,
     modifier: Modifier = Modifier,
+    accentColor: Color = ErSimMint,
     trailingHeader: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
         color = ErSimSurface,
         shape = RoundedCornerShape(15.dp),
-        border = BorderStroke(1.dp, ErSimBorder),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.38f)),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(15.dp)) {
@@ -1811,13 +2260,27 @@ fun ErSimPanelContainer(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = title,
-                    color = ErSimTextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.4.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(accentColor)
+                    )
+                    Text(
+                        text = title,
+                        color = accentColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.3.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 trailingHeader?.invoke()
             }
             Spacer(Modifier.height(11.dp))

@@ -1,0 +1,1271 @@
+0. First, the two engine edits that were missed
+
+engine/CaseEngine.kt. Find data class CaseSession(\n val caseId: String,, then add on the next line:
+
+kotlin
+    val caseVersion: Int,                                // a saved session only replays on the same case version
+
+Find caseId = def.meta.caseId, (inside start) and add below it:
+
+kotlin
+            caseVersion = def.meta.version,
+
+Find if (s.ended) return s (first line of reduce) and put this above it:
+
+kotlin
+        require(s.caseId == def.meta.caseId && s.caseVersion == def.meta.version) {
+            "Session ${s.caseId} v${s.caseVersion} does not belong to ${def.meta.caseId} v${def.meta.version}"
+        }
+        require(s.stateId in def.states) { "Unknown saved patient state ${s.stateId}" }
+
+engine/CaseModel.kt. Below the line if (def.initialStateId !in stateIds) errors += ... add:
+
+kotlin
+        if (def.meta.version < 1) errors += "meta.version must be 1 or more"
+        if (def.meta.reviewStatus !in setOf("DRAFT", "IN_REVIEW", "APPROVED")) errors += "meta.reviewStatus must be DRAFT, IN_REVIEW or APPROVED"
+        if (def.meta.reviewStatus == "APPROVED" && def.meta.reviewers.none { it.isNotBlank() }) errors += "APPROVED case needs at least one named reviewer"
+
+CaseEngineTest.kt. Above @Test fun condition_parserRejectsUnknownSyntax() { add:
+
+kotlin
+    @Test fun approvedCase_withoutReviewer_isRejected() {
+        val approved = File(caseFile()).readText().replace("\"reviewStatus\": \"DRAFT\"", "\"reviewStatus\": \"APPROVED\"")
+        expectFailure { CaseParser.parse(approved) }
+    }
+
+    @Test fun sessionFromAnotherCaseVersion_isRejected() {
+        val old = CaseEngine.start(def).copy(caseVersion = 999)
+        expectFailure { CaseEngine.reduce(def, old, SimEvent.Advance(1)) }
+    }
+1. NEW FILE: app/src/main/java/com/example/engine/GameRules.kt
+kotlin
+package com.example.engine
+
+// ============================================================================
+// GAME RULES — pure presentation logic on top of the engine (stars, alarms,
+// nurse call-outs, action feedback). Pure Kotlin so it is unit-tested.
+// Never invents clinical facts: every string is built from case data.
+// ============================================================================
+
+enum class VitalAlarm(val label: String) {
+    NO_PULSE("No pulse"),
+    HR_LOW("Bradycardia"),
+    HR_HIGH("Tachycardia"),
+    BP_LOW("Hypotension"),
+    SPO2_LOW("Low SpO₂"),
+    RR_HIGH("Tachypnoea")
+}
+
+object GameRules {
+
+    fun stars(scorePercent: Int): Int = when {
+        scorePercent >= 90 -> 3
+        scorePercent >= 70 -> 2
+        scorePercent >= 40 -> 1
+        else -> 0
+    }
+
+    fun alarms(v: SimVitals): Set<VitalAlarm> {
+        if (v.hr == 0 && v.sbp == 0) return setOf(VitalAlarm.NO_PULSE)
+        return buildSet {
+            if (v.hr < 50) add(VitalAlarm.HR_LOW)
+            if (v.hr > 120) add(VitalAlarm.HR_HIGH)
+            if (v.sbp < 90) add(VitalAlarm.BP_LOW)
+            if (v.spo2 < 90) add(VitalAlarm.SPO2_LOW)
+            if (v.rr > 28) add(VitalAlarm.RR_HIGH)
+        }
+    }
+
+    /** Log entries added between two sessions. */
+    fun newEntries(prev: CaseSession, next: CaseSession): List<LogEntry> =
+        if (next.log.size >= prev.log.size) next.log.drop(prev.log.size) else next.log
+
+    /**
+     * Nurse call-out when the patient changes state, or a result arrives.
+     * Returns null when nothing worth calling out happened.
+     */
+    fun nurseCallout(def: CaseDefinition, prev: CaseSession, next: CaseSession): String? {
+        if (next.stateId != prev.stateId) {
+            val st = def.states.getValue(next.stateId)
+            if (st.terminal) return null
+            val v = st.vitals
+            val a = alarms(v)
+            return when {
+                VitalAlarm.NO_PULSE in a -> "Doctor! No pulse — monitor shows ${v.rhythm}!"
+                a.isNotEmpty() -> "Doctor, he's changed: HR ${v.hr}, BP ${v.bpDisplay}, SpO₂ ${v.spo2}%. ${v.rhythm}."
+                else -> "Doctor, update: HR ${v.hr}, BP ${v.bpDisplay}, SpO₂ ${v.spo2}%. ${st.appearance}"
+            }
+        }
+        val result = newEntries(prev, next).lastOrNull { it.kind == LogKind.RESULT } ?: return null
+        val name = result.refId?.let { def.investigationsById[it]?.name } ?: "Result"
+        return "Doctor, the $name is back."
+    }
+
+    /** The one line to show the player after their action (most important first). */
+    fun feedbackFor(prev: CaseSession, next: CaseSession): LogEntry? {
+        val fresh = newEntries(prev, next)
+        val priority = listOf(LogKind.HARM, LogKind.REJECTED, LogKind.STATE_CHANGE, LogKind.NOTE, LogKind.INFO, LogKind.ORDERED, LogKind.ACTION)
+        for (k in priority) fresh.lastOrNull { it.kind == k }?.let { return it }
+        return null
+    }
+
+    /** Seconds until a pending investigation result is ready (null if not pending). */
+    fun secondsUntilResult(s: CaseSession, investigationId: String): Int? =
+        s.pending.firstOrNull { it.investigationId == investigationId }?.let { (it.readyAtSec - s.elapsedSec).coerceAtLeast(0) }
+
+    /** Latest logged exam finding for a region (re-examining refreshes it). */
+    fun lastExamFinding(s: CaseSession, region: String): String? =
+        s.log.lastOrNull { it.kind == LogKind.EXAM && it.refId == region }?.text?.substringAfter(": ")
+
+    /** Latest patient speech (opening line, state-change lines and history answers). */
+    fun lastPatientLine(s: CaseSession): String? =
+        s.log.lastOrNull { it.kind == LogKind.HISTORY }?.text
+}
+2. NEW FILE: app/src/test/java/com/example/engine/GameRulesTest.kt
+kotlin
+package com.example.engine
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+class GameRulesTest {
+
+    private val def: CaseDefinition by lazy {
+        val f = listOf("src/main/assets/cases/ersim_stemi_001.json", "app/src/main/assets/cases/ersim_stemi_001.json")
+            .map { File(it) }.first { it.exists() }
+        CaseParser.parse(f.readText())
+    }
+
+    @Test fun stars_thresholds() {
+        assertEquals(3, GameRules.stars(100))
+        assertEquals(3, GameRules.stars(90))
+        assertEquals(2, GameRules.stars(70))
+        assertEquals(1, GameRules.stars(40))
+        assertEquals(0, GameRules.stars(39))
+    }
+
+    @Test fun alarms_fromVitals() {
+        assertEquals(setOf(VitalAlarm.NO_PULSE), GameRules.alarms(SimVitals(0, 0, 0, 0, 0, 36.9, "VF")))
+        val chb = GameRules.alarms(SimVitals(36, 82, 50, 22, 94, 36.9, "CHB"))
+        assertTrue(VitalAlarm.HR_LOW in chb && VitalAlarm.BP_LOW in chb)
+        assertTrue(GameRules.alarms(SimVitals(92, 108, 68, 20, 96, 36.9, "SR")).isEmpty())
+    }
+
+    @Test fun nurseCallsOut_stateChangeAndResults() {
+        val s0 = CaseEngine.start(def)
+        val s1 = CaseEngine.reduce(def, s0, SimEvent.Order("ecg_12lead"))
+        val s2 = CaseEngine.reduce(def, s1, SimEvent.Advance(60))
+        assertEquals("Doctor, the 12-lead ECG is back.", GameRules.nurseCallout(def, s1, s2))
+        val s3 = CaseEngine.reduce(def, s2, SimEvent.Perform("gtn_sl"))
+        val call = GameRules.nurseCallout(def, s2, s3)
+        assertNotNull(call)
+        assertTrue(call!!.contains("74/46"))
+    }
+
+    @Test fun feedback_prefersHarm() {
+        val s0 = CaseEngine.reduceAll(def, CaseEngine.start(def), listOf(SimEvent.Order("ecg_12lead"), SimEvent.Advance(60)))
+        val s1 = CaseEngine.reduce(def, s0, SimEvent.Perform("gtn_sl"))
+        assertEquals(LogKind.HARM, GameRules.feedbackFor(s0, s1)!!.kind)
+    }
+
+    @Test fun pendingCountdown_andExamRefresh() {
+        val s = CaseEngine.reduceAll(def, CaseEngine.start(def), listOf(SimEvent.Order("ecg_12lead"), SimEvent.Advance(20)))
+        assertEquals(40, GameRules.secondsUntilResult(s, "ecg_12lead"))
+        var e = CaseEngine.reduce(def, s, SimEvent.Examine("CARD"))
+        assertTrue(GameRules.lastExamFinding(e, "CARD")!!.startsWith("Regular pulse"))
+        e = CaseEngine.reduceAll(def, e, listOf(SimEvent.Advance(900), SimEvent.Examine("CARD")))
+        assertTrue(GameRules.lastExamFinding(e, "CARD")!!.contains("Cannon waves"))
+    }
+}
+3. NEW FILE: app/src/main/java/com/example/ui/game/GameViewModel.kt
+kotlin
+package com.example.ui.game
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.engine.CaseDefinition
+import com.example.engine.CaseEngine
+import com.example.engine.CaseLibrary
+import com.example.engine.CaseSession
+import com.example.engine.DebriefReport
+import com.example.engine.GameRules
+import com.example.engine.LogEntry
+import com.example.engine.SimEvent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// ============================================================================
+// GAME VIEWMODEL — runs one engine-driven case in real time.
+// 1 real second = 1 simulated second while playing. "Wait" jumps time.
+// All clinical behaviour comes from CaseEngine + the case JSON.
+// ============================================================================
+
+data class GameUiState(
+    val cases: List<CaseDefinition> = emptyList(),
+    val loadError: String? = null,
+    val def: CaseDefinition? = null,
+    val session: CaseSession? = null,
+    val paused: Boolean = false,
+    val nurseMessage: String? = null,
+    val feedback: LogEntry? = null,
+    val debrief: DebriefReport? = null,
+    val resultRecorded: Boolean = false
+) {
+    val isPlaying: Boolean get() = def != null && session != null
+}
+
+class GameViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _state = MutableStateFlow(GameUiState())
+    val state: StateFlow<GameUiState> = _state.asStateFlow()
+
+    private var ticker: Job? = null
+    private var backgrounded = false
+
+    init {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { CaseLibrary.loadAll(getApplication()) }
+            }
+            _state.update {
+                it.copy(
+                    cases = result.getOrDefault(emptyList()),
+                    loadError = result.exceptionOrNull()?.message
+                )
+            }
+        }
+    }
+
+    fun startCase(caseId: String) {
+        val def = _state.value.cases.firstOrNull { it.meta.caseId == caseId } ?: return
+        _state.update {
+            it.copy(def = def, session = CaseEngine.start(def), paused = false, nurseMessage = null, feedback = null, debrief = null, resultRecorded = false)
+        }
+        startTicker()
+    }
+
+    fun replay() {
+        _state.value.def?.let { startCase(it.meta.caseId) }
+    }
+
+    fun exitGame() {
+        ticker?.cancel()
+        _state.update { it.copy(def = null, session = null, debrief = null, nurseMessage = null, feedback = null, paused = false) }
+    }
+
+    fun ask(historyId: String) = dispatch(SimEvent.Ask(historyId))
+    fun examine(region: String) = dispatch(SimEvent.Examine(region))
+    fun order(investigationId: String) = dispatch(SimEvent.Order(investigationId))
+    fun perform(actionId: String) = dispatch(SimEvent.Perform(actionId))
+    fun wait(seconds: Int) = dispatch(SimEvent.Advance(seconds))
+
+    /** Debrief result saved to progress (guards against double-counting on recomposition). */
+    fun markResultRecorded() = _state.update { it.copy(resultRecorded = true) }
+
+    fun togglePause() = _state.update { it.copy(paused = !it.paused) }
+    fun dismissNurse() = _state.update { it.copy(nurseMessage = null) }
+    fun dismissFeedback() = _state.update { it.copy(feedback = null) }
+
+    /** Called by the screen on app stop/start so the clock never runs unseen. */
+    fun setBackgrounded(value: Boolean) {
+        backgrounded = value
+    }
+
+    /** Player ends the case early: debrief on what was done so far. */
+    fun endCase() {
+        val st = _state.value
+        val def = st.def ?: return
+        val s = st.session ?: return
+        ticker?.cancel()
+        _state.update { it.copy(debrief = CaseEngine.debrief(def, s)) }
+    }
+
+    private fun dispatch(event: SimEvent) {
+        val st = _state.value
+        val def = st.def ?: return
+        val prev = st.session ?: return
+        if (st.debrief != null) return
+        val next = CaseEngine.reduce(def, prev, event)
+        val nurse = GameRules.nurseCallout(def, prev, next)
+        val fb = if (event is SimEvent.Advance) null else GameRules.feedbackFor(prev, next)
+        _state.update {
+            it.copy(
+                session = next,
+                nurseMessage = nurse ?: it.nurseMessage,
+                feedback = fb ?: it.feedback,
+                debrief = if (next.ended) CaseEngine.debrief(def, next) else null
+            )
+        }
+        if (next.ended) ticker?.cancel()
+    }
+
+    private fun startTicker() {
+        ticker?.cancel()
+        ticker = viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                val st = _state.value
+                if (!st.paused && !backgrounded && st.debrief == null) dispatch(SimEvent.Advance(1))
+            }
+        }
+    }
+
+    override fun onCleared() {
+        ticker?.cancel()
+        super.onCleared()
+    }
+}
+4. NEW FILE: app/src/main/java/com/example/ui/game/GameScreen.kt
+kotlin
+package com.example.ui.game
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.engine.CaseDefinition
+import com.example.engine.CaseEngine
+import com.example.engine.CaseParser
+import com.example.engine.CaseSession
+import com.example.engine.DebriefReport
+import com.example.engine.GameRules
+import com.example.engine.LogEntry
+import com.example.engine.LogKind
+import com.example.engine.VitalAlarm
+import com.example.ui.theme.*
+
+// ============================================================================
+// INTERACTIVE CASE SCREEN — the playable game loop
+// Monitor • nurse • patient • Talk / Examine / Tests / Treat / Log • Debrief
+// ============================================================================
+
+private enum class GameTab(val label: String, val icon: ImageVector) {
+    TALK("Talk", Icons.Default.RecordVoiceOver),
+    EXAMINE("Examine", Icons.Default.PanTool),
+    TESTS("Tests", Icons.Default.Science),
+    TREAT("Treat", Icons.Default.Medication),
+    LOG("Log", Icons.Default.History)
+}
+
+private val REGION_LABELS = linkedMapOf(
+    "GENERAL" to "General", "HEENT" to "HEENT & neck", "PULM" to "Chest & lungs",
+    "CARD" to "Heart", "ABD" to "Abdomen", "SKIN" to "Skin & limbs", "NEURO" to "Neuro"
+)
+
+@Composable
+fun GameScreen(
+    vm: GameViewModel,
+    onExit: () -> Unit,
+    onFinished: (caseId: String, stars: Int) -> Unit
+) {
+    val state by vm.state.collectAsState()
+    val def = state.def
+    val session = state.session
+
+    // Clock never runs while the app is not visible
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_STOP) vm.setBackgrounded(true)
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_START) vm.setBackgrounded(false)
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
+    if (def == null || session == null) {
+        Box(Modifier.fillMaxSize().background(ErSimBg), contentAlignment = Alignment.Center) {
+            Text(state.loadError ?: "Loading case…", color = ErSimTextMuted)
+        }
+        return
+    }
+
+    val debrief = state.debrief
+    LaunchedEffect(debrief, state.resultRecorded) {
+        if (debrief != null && !state.resultRecorded) {
+            vm.markResultRecorded()
+            onFinished(def.meta.caseId, GameRules.stars(debrief.scorePercent))
+        }
+    }
+
+    var confirmExit by remember { mutableStateOf(false) }
+    BackHandler { if (debrief != null) onExit() else confirmExit = true }
+
+    if (debrief != null) {
+        DebriefScreen(def, debrief, onReplay = vm::replay, onExit = onExit)
+        return
+    }
+
+    var tab by rememberSaveable { mutableStateOf(GameTab.TALK) }
+    val st = CaseEngine.currentState(def, session)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ErSimBg)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .testTag("game_screen")
+    ) {
+        // ---------------- top bar
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+            IconButton(onClick = { confirmExit = true }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Leave case", tint = ErSimTextPrimary)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(def.meta.title, color = ErSimTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(def.patient.setting.substringBefore("."), color = ErSimTextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Surface(color = ErSimRaisedSurface, shape = RoundedCornerShape(8.dp)) {
+                Text(
+                    CaseEngine.formatClock(session.elapsedSec),
+                    color = if (state.paused) ErSimAmber else ErSimMint,
+                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp).testTag("game_clock")
+                )
+            }
+            IconButton(onClick = vm::togglePause) {
+                Icon(
+                    if (state.paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                    contentDescription = if (state.paused) "Resume" else "Pause",
+                    tint = ErSimTextPrimary
+                )
+            }
+            TextButton(onClick = vm::endCase) { Text("End", color = ErSimRed, fontWeight = FontWeight.Bold) }
+        }
+
+        // ---------------- monitor
+        MonitorPanel(st.vitals, st.vitals.rhythm)
+
+        // ---------------- nurse call-out
+        AnimatedVisibility(visible = state.nurseMessage != null) {
+            state.nurseMessage?.let { msg ->
+                Surface(
+                    color = ErSimAmber.copy(alpha = 0.16f),
+                    border = BorderStroke(1.dp, ErSimAmber),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("nurse_callout")
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 10.dp)) {
+                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = ErSimAmber, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Nurse: $msg", color = ErSimTextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
+                        IconButton(onClick = vm::dismissNurse) {
+                            Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = ErSimTextMuted, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------- patient
+        PatientCard(def, session, st.appearance)
+
+        // ---------------- tabs
+        TabRow(
+            selectedTabIndex = tab.ordinal,
+            containerColor = ErSimHeaderBg,
+            contentColor = ErSimMint,
+            modifier = Modifier.padding(top = 6.dp)
+        ) {
+            GameTab.entries.forEach { t ->
+                Tab(
+                    selected = tab == t,
+                    onClick = { tab = t },
+                    icon = { Icon(t.icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    text = { Text(t.label, fontSize = 11.sp) },
+                    selectedContentColor = ErSimMint,
+                    unselectedContentColor = ErSimTextMuted,
+                    modifier = Modifier.testTag("game_tab_${t.name.lowercase()}")
+                )
+            }
+        }
+
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (tab) {
+                GameTab.TALK -> TalkTab(def, session, vm::ask)
+                GameTab.EXAMINE -> ExamineTab(session, vm::examine)
+                GameTab.TESTS -> TestsTab(def, session, vm::order, vm::wait)
+                GameTab.TREAT -> TreatTab(def, session, vm::perform)
+                GameTab.LOG -> LogTab(session)
+            }
+        }
+
+        // ---------------- action feedback
+        state.feedback?.let { fb -> FeedbackBar(fb, vm::dismissFeedback) }
+    }
+
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            containerColor = ErSimSurface,
+            title = { Text("Leave this case?", color = ErSimTextPrimary) },
+            text = { Text("Progress in this case will be lost.", color = ErSimTextMuted) },
+            confirmButton = {
+                TextButton(onClick = { confirmExit = false; vm.exitGame(); onExit() }) {
+                    Text("Leave", color = ErSimRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("Stay", color = ErSimMint) } }
+        )
+    }
+}
+
+// ============================================================================
+// MONITOR
+// ============================================================================
+
+@Composable
+private fun MonitorPanel(v: com.example.engine.SimVitals, rhythm: String) {
+    val alarms = GameRules.alarms(v)
+    val noPulse = VitalAlarm.NO_PULSE in alarms
+    Surface(
+        color = ErSimWaveWell,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (alarms.isNotEmpty()) ErSimRed else ErSimBorder),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("game_monitor")
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                VitalCell("HR", if (noPulse) "---" else "${v.hr}", "bpm", Color(0xFF51E3B2), VitalAlarm.HR_LOW in alarms || VitalAlarm.HR_HIGH in alarms || noPulse)
+                VitalCell("BP", if (noPulse) "---" else v.bpDisplay, "mmHg", Color(0xFFFF687B), VitalAlarm.BP_LOW in alarms || noPulse)
+                VitalCell("SpO₂", if (noPulse) "---" else "${v.spo2}", "%", Color(0xFF38BDF8), VitalAlarm.SPO2_LOW in alarms || noPulse)
+                VitalCell("RR", if (noPulse) "---" else "${v.rr}", "/min", Color(0xFFFFCB74), VitalAlarm.RR_HIGH in alarms)
+                VitalCell("T", "%.1f".format(v.tempC), "°C", Color(0xFFE8F4FA), false)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.MonitorHeart, contentDescription = null, tint = Color(0xFF51E3B2), modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(rhythm, color = Color(0xFFE8F4FA), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (alarms.isNotEmpty()) {
+                    Text(alarms.joinToString(" • ") { it.label }.uppercase(), color = Color(0xFFFF687B), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VitalCell(label: String, value: String, unit: String, color: Color, alarm: Boolean) {
+    Column(horizontalAlignment = Alignment.Start) {
+        Text(label, color = Color(0xFF92ABBA), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = if (alarm) Color(0xFFFF687B) else color, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace)
+        Text(unit, color = Color(0xFF92ABBA), fontSize = 9.sp)
+    }
+}
+
+// ============================================================================
+// PATIENT
+// ============================================================================
+
+@Composable
+private fun PatientCard(def: CaseDefinition, s: CaseSession, appearance: String) {
+    val line = GameRules.lastPatientLine(s)
+    Surface(
+        color = ErSimSurface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, ErSimBorder),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.Top) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(40.dp).background(ErSimRaisedSurface, CircleShape)
+            ) {
+                Text(def.patient.name.take(1), color = ErSimMint, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "${def.patient.name}, ${def.patient.ageYears} y • ${def.patient.weightKg.toInt()} kg",
+                    color = ErSimTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold
+                )
+                Text(appearance, color = ErSimTextMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                if (line != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Surface(color = ErSimRaisedSurface, shape = RoundedCornerShape(topStart = 2.dp, topEnd = 10.dp, bottomEnd = 10.dp, bottomStart = 10.dp)) {
+                        Text(line, color = ErSimTextPrimary, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(8.dp).testTag("patient_speech"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// TABS
+// ============================================================================
+
+@Composable
+private fun TalkTab(def: CaseDefinition, s: CaseSession, onAsk: (String) -> Unit) {
+    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { TabHint("Ask the patient. Answers appear in the speech bubble.") }
+        items(def.history, key = { it.id }) { h ->
+            val asked = "ask:${h.id}" in s.performed
+            ActionCard(
+                title = h.samplePrompts.firstOrNull() ?: h.topic,
+                subtitle = if (asked) "\"${h.answer}\"" else h.topic,
+                done = asked,
+                buttonLabel = if (asked) "Ask again" else "Ask",
+                onClick = { onAsk(h.id) },
+                tag = "ask_${h.id}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExamineTab(s: CaseSession, onExamine: (String) -> Unit) {
+    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { TabHint("Re-examine after treatment: findings change with the patient.") }
+        items(REGION_LABELS.keys.filter { it in CaseParser.EXAM_REGIONS }.toList(), key = { it }) { region ->
+            val finding = GameRules.lastExamFinding(s, region)
+            ActionCard(
+                title = REGION_LABELS.getValue(region),
+                subtitle = finding ?: "Not examined yet",
+                done = finding != null,
+                buttonLabel = if (finding != null) "Re-examine" else "Examine",
+                onClick = { onExamine(region) },
+                tag = "exam_${region.lowercase()}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun TestsTab(def: CaseDefinition, s: CaseSession, onOrder: (String) -> Unit, onWait: (Int) -> Unit) {
+    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TabHint("Results take time. Waiting moves the clock — the patient keeps changing.", Modifier.weight(1f))
+                OutlinedButton(
+                    onClick = { onWait(60) },
+                    border = BorderStroke(1.dp, ErSimBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ErSimTextPrimary),
+                    modifier = Modifier.testTag("wait_1min")
+                ) { Text("Wait 1 min", fontSize = 12.sp) }
+            }
+        }
+        items(def.investigations, key = { it.id }) { inv ->
+            val wait = GameRules.secondsUntilResult(s, inv.id)
+            val result = s.results[inv.id]
+            val sub = when {
+                wait != null -> "Pending… ready in ${CaseEngine.formatClock(wait)}"
+                result != null -> result
+                else -> "Turnaround ${CaseEngine.formatClock(inv.turnaroundSec)}"
+            }
+            ActionCard(
+                title = inv.name,
+                subtitle = sub,
+                done = result != null,
+                buttonLabel = if (result != null) "Repeat" else "Order",
+                enabled = wait == null,
+                onClick = { onOrder(inv.id) },
+                tag = "order_${inv.id}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun TreatTab(def: CaseDefinition, s: CaseSession, onPerform: (String) -> Unit) {
+    val groups = remember(def) { def.interventions.groupBy { it.category } }
+    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { TabHint("Every order is checked against the patient. Think before you give.") }
+        groups.forEach { (category, list) ->
+            item(key = "h_$category") {
+                Text(category.replace('_', ' '), color = ErSimTextMuted, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+            items(list, key = { it.id }) { a ->
+                val givenAt = s.performed[a.id]
+                val count = s.performedCount[a.id] ?: 0
+                val doseLine = listOfNotNull(a.dose, a.route).joinToString(" • ")
+                ActionCard(
+                    title = a.name,
+                    subtitle = buildString {
+                        if (doseLine.isNotEmpty()) append(doseLine)
+                        if (givenAt != null) {
+                            if (isNotEmpty()) append("\n")
+                            append("Given at ${CaseEngine.formatClock(givenAt)}")
+                            if (count > 1) append(" (×$count)")
+                        }
+                    },
+                    done = givenAt != null,
+                    buttonLabel = if (givenAt != null && a.repeatable) "Again" else "Give",
+                    enabled = givenAt == null || a.repeatable,
+                    onClick = { onPerform(a.id) },
+                    tag = "give_${a.id}"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LogTab(s: CaseSession) {
+    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(s.log.asReversed()) { e -> LogRow(e) }
+    }
+}
+
+@Composable
+private fun LogRow(e: LogEntry) {
+    val (color, label) = logStyle(e.kind)
+    Row(verticalAlignment = Alignment.Top) {
+        Text(CaseEngine.formatClock(e.atSec), color = ErSimTextMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(44.dp))
+        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(62.dp))
+        Text(e.text, color = ErSimTextPrimary, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.weight(1f))
+    }
+}
+
+private fun logStyle(k: LogKind): Pair<Color, String> = when (k) {
+    LogKind.HARM -> ErSimRed to "HARM"
+    LogKind.REJECTED -> ErSimAmber to "BLOCKED"
+    LogKind.NOTE -> ErSimAmber to "NOTE"
+    LogKind.STATE_CHANGE -> ErSimRed to "CHANGE"
+    LogKind.RESULT -> ErSimMint to "RESULT"
+    LogKind.ORDERED -> ErSimTextMuted to "ORDER"
+    LogKind.ACTION -> ErSimMint to "GIVEN"
+    LogKind.HISTORY -> ErSimTextPrimary to "PATIENT"
+    LogKind.EXAM -> ErSimTextPrimary to "EXAM"
+    LogKind.END -> ErSimMint to "END"
+    LogKind.INFO -> ErSimTextMuted to "INFO"
+}
+
+// ============================================================================
+// SHARED PIECES
+// ============================================================================
+
+@Composable
+private fun TabHint(text: String, modifier: Modifier = Modifier) {
+    Text(text, color = ErSimTextMuted, fontSize = 11.sp, modifier = modifier.padding(bottom = 2.dp))
+}
+
+@Composable
+private fun ActionCard(
+    title: String,
+    subtitle: String,
+    done: Boolean,
+    buttonLabel: String,
+    onClick: () -> Unit,
+    tag: String,
+    enabled: Boolean = true
+) {
+    Surface(
+        color = ErSimSurface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (done) ErSimMint.copy(alpha = 0.5f) else ErSimBorder),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = ErSimTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                if (subtitle.isNotBlank()) {
+                    Text(subtitle, color = if (done) ErSimTextPrimary else ErSimTextMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ErSimMint, contentColor = ErSimBg,
+                    disabledContainerColor = ErSimRaisedSurface, disabledContentColor = ErSimTextMuted
+                ),
+                modifier = Modifier.heightIn(min = 44.dp).testTag(tag)
+            ) { Text(buttonLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+@Composable
+private fun FeedbackBar(e: LogEntry, onDismiss: () -> Unit) {
+    val (color, label) = logStyle(e.kind)
+    Surface(
+        color = ErSimHeaderBg,
+        border = BorderStroke(1.dp, color),
+        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+        modifier = Modifier.fillMaxWidth().testTag("game_feedback")
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
+            Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.width(8.dp))
+            Text(e.text, color = ErSimTextPrimary, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = ErSimTextMuted, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+// ============================================================================
+// DEBRIEF
+// ============================================================================
+
+@Composable
+private fun DebriefScreen(def: CaseDefinition, d: DebriefReport, onReplay: () -> Unit, onExit: () -> Unit) {
+    val stars = GameRules.stars(d.scorePercent)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ErSimBg)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+            .testTag("debrief_screen")
+    ) {
+        Text("DEBRIEF", color = ErSimMint, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
+        Text(def.meta.title, color = ErSimTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+
+        Surface(color = ErSimSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, ErSimBorder), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row {
+                    repeat(3) { i ->
+                        Icon(
+                            if (i < stars) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = null,
+                            tint = if (i < stars) ErSimAmber else ErSimTextMuted,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
+                Text("${d.scorePercent}%", color = ErSimTextPrimary, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semanticsLabel("$stars of 3 stars, score ${d.scorePercent} percent"))
+                Text("Time ${CaseEngine.formatClock(d.elapsedSec)}", color = ErSimTextMuted, fontSize = 12.sp)
+                Spacer(Modifier.height(6.dp))
+                Text(d.outcome, color = ErSimTextPrimary, fontSize = 14.sp, lineHeight = 19.sp)
+            }
+        }
+
+        DebriefSection("Diagnosis") {
+            Text(d.diagnosis, color = ErSimTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(d.summary, color = ErSimTextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+
+        DebriefSection("Critical actions") {
+            d.criticalActions.forEach { r ->
+                val (icon, tint, status) = when {
+                    r.met -> Triple(Icons.Default.CheckCircle, ErSimMint, r.doneAtSec?.let { "Done at ${CaseEngine.formatClock(it)}" } ?: "Avoided")
+                    r.late -> Triple(Icons.Default.Schedule, ErSimAmber, "Late — at ${CaseEngine.formatClock(r.doneAtSec ?: 0)}")
+                    else -> Triple(Icons.Default.Cancel, ErSimRed, if (r.def.avoid) "Done — should have been avoided" else "Missed")
+                }
+                Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 4.dp)) {
+                    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(r.def.label, color = ErSimTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(status, color = tint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        if (!r.met) Text(r.def.teaching, color = ErSimTextMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                    }
+                    Text("${r.def.points}", color = ErSimTextMuted, fontSize = 11.sp)
+                }
+            }
+        }
+
+        if (d.harms.isNotEmpty()) {
+            DebriefSection("Harm events") {
+                d.harms.forEach { h ->
+                    Text("${CaseEngine.formatClock(h.atSec)}  ${h.text}", color = ErSimRed, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(vertical = 2.dp))
+                }
+            }
+        }
+
+        DebriefSection("Disposition") {
+            Text(d.disposition, color = ErSimTextPrimary, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+
+        DebriefSection("Teaching points") {
+            d.teachingPoints.forEach { t ->
+                Row(modifier = Modifier.padding(vertical = 3.dp)) {
+                    Text("•", color = ErSimMint, fontSize = 13.sp, modifier = Modifier.width(14.dp))
+                    Text(t, color = ErSimTextPrimary, fontSize = 13.sp, lineHeight = 18.sp)
+                }
+            }
+        }
+
+        Text(
+            "Guideline basis: ${def.meta.guidelineBasis}. Review status: ${def.meta.reviewStatus}.",
+            color = ErSimTextMuted, fontSize = 11.sp
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = onExit,
+                border = BorderStroke(1.dp, ErSimBorder),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = ErSimTextPrimary),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(50.dp).testTag("debrief_home")
+            ) { Text("Home", fontWeight = FontWeight.Bold) }
+            Button(
+                onClick = onReplay,
+                colors = ButtonDefaults.buttonColors(containerColor = ErSimMint, contentColor = ErSimBg),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(50.dp).testTag("debrief_replay")
+            ) {
+                Icon(Icons.Default.Replay, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Replay", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebriefSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Surface(color = ErSimSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, ErSimBorder), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(title.uppercase(), color = ErSimMint, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp)
+            Spacer(Modifier.height(6.dp))
+            content()
+        }
+    }
+}
+
+private fun Modifier.semanticsLabel(label: String): Modifier =
+    this.then(Modifier.semantics(mergeDescendants = true) { contentDescription = label })
+5. EDIT: ui/app/AppPrefs.kt (best stars per case)
+
+Find:
+
+kotlin
+    val lastCaseNumber: Int? = null,
+    val lastPlayedAtMillis: Long = 0L
+)
+
+Replace with:
+
+kotlin
+    val lastCaseNumber: Int? = null,
+    val lastPlayedAtMillis: Long = 0L,
+    val bestStars: Map<String, Int> = emptyMap()      // interactive caseId -> best stars (0-3)
+)
+
+Find:
+
+kotlin
+            lastPlayedAtMillis = sp.getLong(K_LAST_AT, 0L)
+        )
+
+Replace with:
+
+kotlin
+            lastPlayedAtMillis = sp.getLong(K_LAST_AT, 0L),
+            bestStars = (sp.getStringSet(K_STARS, emptySet()) ?: emptySet()).mapNotNull { e ->
+                val id = e.substringBeforeLast("=", "")
+                val n = e.substringAfterLast("=", "").toIntOrNull()
+                if (id.isNotEmpty() && n != null) id to n else null
+            }.toMap()
+        )
+
+Find:
+
+kotlin
+            .putLong(K_LAST_AT, s.progress.lastPlayedAtMillis)
+
+Replace with:
+
+kotlin
+            .putLong(K_LAST_AT, s.progress.lastPlayedAtMillis)
+            .putStringSet(K_STARS, s.progress.bestStars.map { (id, n) -> "$id=$n" }.toSet())
+
+Find:
+
+kotlin
+        const val K_LAST_AT = "progress_last_at"
+
+Replace with:
+
+kotlin
+        const val K_LAST_AT = "progress_last_at"
+        const val K_STARS = "progress_best_stars"
+
+Find:
+
+kotlin
+    fun resetProgress() = mutate { it.copy(progress = CaseProgress()) }
+
+Replace with:
+
+kotlin
+    fun resetProgress() = mutate { it.copy(progress = CaseProgress()) }
+
+    /** Interactive case finished: keep the best star rating and count the session. */
+    fun recordInteractiveResult(caseId: String, stars: Int) = mutate {
+        val best = maxOf(stars, it.progress.bestStars[caseId] ?: 0)
+        it.copy(
+            progress = it.progress.copy(
+                bestStars = it.progress.bestStars + (caseId to best),
+                sessionsCount = it.progress.sessionsCount + 1,
+                lastPlayedAtMillis = System.currentTimeMillis()
+            )
+        )
+    }
+6. EDIT: ui/app/AppScreens.kt (Home "Interactive cases" card)
+
+6a. Find:
+
+kotlin
+enum class CaseFilter(
+
+Replace with:
+
+kotlin
+/** Card data for an engine-driven interactive case (built from CaseDefinition.meta). */
+data class InteractiveCaseSummary(
+    val caseId: String,
+    val title: String,
+    val category: String,
+    val difficulty: String,
+    val minutes: Int,
+    val reviewStatus: String
+)
+
+enum class CaseFilter(
+
+6b. ErSimAppShell signature. Find:
+
+kotlin
+    onResetEverything: () -> Unit,
+    onLogOut: () -> Unit
+) {
+    var tab by rememberSaveable
+
+Replace with:
+
+kotlin
+    onResetEverything: () -> Unit,
+    onLogOut: () -> Unit,
+    interactiveCases: List<InteractiveCaseSummary> = emptyList(),
+    onPlayInteractive: (String) -> Unit = {}
+) {
+    var tab by rememberSaveable
+
+6c. Find:
+
+kotlin
+                    onOpenProfile = { tab = AppTab.PROFILE },
+                    onOpenAbout = { showAbout = true }
+                )
+
+Replace with:
+
+kotlin
+                    onOpenProfile = { tab = AppTab.PROFILE },
+                    onOpenAbout = { showAbout = true },
+                    interactiveCases = interactiveCases,
+                    onPlayInteractive = onPlayInteractive
+                )
+
+6d. HomeScreen signature. Find:
+
+kotlin
+    onOpenProfile: () -> Unit,
+    onOpenAbout: () -> Unit
+) {
+    val profile = appState.profile
+
+Replace with:
+
+kotlin
+    onOpenProfile: () -> Unit,
+    onOpenAbout: () -> Unit,
+    interactiveCases: List<InteractiveCaseSummary>,
+    onPlayInteractive: (String) -> Unit
+) {
+    val profile = appState.profile
+
+6e. The card. Find:
+
+kotlin
+        if (progress.lastCaseNumber != null && lastCaseTitle != null) {
+
+Replace with:
+
+kotlin
+        if (interactiveCases.isNotEmpty()) {
+            AppCard(borderColor = ErSimAmber) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("INTERACTIVE CASES", color = ErSimAmber, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp, modifier = Modifier.weight(1f))
+                    Text("NEW", color = ErSimBg, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.background(ErSimAmber, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
+                }
+                Text("Live patient, real-time clock, consequences and debrief.", color = ErSimTextMuted, fontSize = 12.sp)
+                interactiveCases.forEach { c ->
+                    val best = progress.bestStars[c.caseId] ?: 0
+                    Surface(
+                        color = ErSimRaisedSurface,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPlayInteractive(c.caseId) }
+                            .testTag("play_${c.caseId}")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(c.title, color = ErSimTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text("${c.category} • ${c.difficulty} • ~${c.minutes} min" + if (c.reviewStatus != "APPROVED") " • Draft" else "",
+                                    color = ErSimTextMuted, fontSize = 12.sp)
+                                Row {
+                                    repeat(3) { i ->
+                                        Icon(if (i < best) Icons.Default.Star else Icons.Default.StarBorder, contentDescription = null,
+                                            tint = if (i < best) ErSimAmber else ErSimTextMuted, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Play ${c.title}", tint = ErSimMint, modifier = Modifier.size(28.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        if (progress.lastCaseNumber != null && lastCaseTitle != null) {
+7. EDIT: MainActivity.kt
+
+7a. Imports. Find:
+
+kotlin
+import com.example.ui.app.ThemeMode
+
+Replace with:
+
+kotlin
+import com.example.ui.app.ThemeMode
+import com.example.ui.app.InteractiveCaseSummary
+import com.example.ui.game.GameScreen
+import com.example.ui.game.GameViewModel
+
+7b. ErSimRoot signature. Find:
+
+kotlin
+    appViewModel: AppViewModel = viewModel(),
+    simViewModel: SimViewModel = viewModel()
+) {
+
+Replace with:
+
+kotlin
+    appViewModel: AppViewModel = viewModel(),
+    simViewModel: SimViewModel = viewModel(),
+    gameViewModel: GameViewModel = viewModel()
+) {
+
+7c. Find:
+
+kotlin
+    var inSimulation by rememberSaveable { mutableStateOf(false) }
+
+Replace with:
+
+kotlin
+    var inSimulation by rememberSaveable { mutableStateOf(false) }
+    var inGame by rememberSaveable { mutableStateOf(false) }
+    val gameState by gameViewModel.state.collectAsStateWithLifecycle()
+    // After process death the game session is gone: fall back to Home
+    LaunchedEffect(inGame, gameState.isPlaying, gameState.cases) {
+        if (inGame && !gameState.isPlaying && (gameState.cases.isNotEmpty() || gameState.loadError != null)) inGame = false
+    }
+
+7d. Find:
+
+kotlin
+    val useDark = inSimulation || appDark
+
+Replace with:
+
+kotlin
+    val useDark = inSimulation || inGame || appDark
+
+7e. Find:
+
+kotlin
+        inSimulation -> ErResusSimulationApp(
+
+Replace with:
+
+kotlin
+        inGame -> GameScreen(
+            vm = gameViewModel,
+            onExit = {
+                gameViewModel.exitGame()
+                inGame = false
+            },
+            onFinished = appViewModel::recordInteractiveResult
+        )
+
+        inSimulation -> ErResusSimulationApp(
+
+7f. Find:
+
+kotlin
+            onLogOut = {
+                inSimulation = false
+                appViewModel.logOut()
+            }
+        )
+
+Replace with:
+
+kotlin
+            onLogOut = {
+                inSimulation = false
+                inGame = false
+                appViewModel.logOut()
+            },
+            interactiveCases = gameState.cases.map {
+                InteractiveCaseSummary(it.meta.caseId, it.meta.title, it.meta.category, it.meta.difficulty, it.meta.estimatedMinutes, it.meta.reviewStatus)
+            },
+            onPlayInteractive = { id ->
+                gameViewModel.startCase(id)
+                inGame = true
+            }
+        )
+
+Try these rounds on your phone:
+
+Ideal run: ECG → right-sided ECG → aspirin, clopidogrel, enoxaparin → ask about bleeding and stroke → call the PCI centre → tenecteplase. He reperfuses about 10 minutes later and is transferred. You should get ⭐⭐⭐.
+The trap: give GTN. BP crashes to 74/46, the nurse calls out and the harm is logged. A fluid bolus brings him back.
+Do nothing: tap Wait 1 min repeatedly. Heart block arrives at 15:00, VF at 25:00, and death 4 minutes later if you don't shock.
+
+The old 20-case simulator is unchanged. The interactive mode runs alongside it.

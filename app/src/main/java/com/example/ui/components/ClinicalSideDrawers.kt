@@ -81,9 +81,23 @@ fun VerticalTabRail(
     ) {
         tabs.forEach { tab ->
             val isSelected = activeTab == tab
+            val tabAccent = when (tab) {
+                SideDrawerTab.PATIENT -> ErSimMint
+                SideDrawerTab.EXAM -> ErSimViolet
+                SideDrawerTab.STABILIZE -> ErSimSky
+                SideDrawerTab.DIFFERENTIAL -> ErSimAmber
+                SideDrawerTab.INVESTIGATIONS -> ErSimCyan
+                SideDrawerTab.INTERVENTIONS -> ErSimRed
+                SideDrawerTab.COMMUNICATE -> ErSimOrange
+                SideDrawerTab.HANDOFF -> ErSimRose
+            }
             Surface(
-                color = if (isSelected) ClinicalActiveBlue else ClinicalSheetWhite,
+                color = if (isSelected) tabAccent else ClinicalSheetWhite,
                 shape = shape,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.2.dp,
+                    if (isSelected) tabAccent else tabAccent.copy(alpha = 0.55f)
+                ),
                 shadowElevation = if (isSelected) 8.dp else 4.dp,
                 modifier = Modifier
                     .width(40.dp)
@@ -97,9 +111,9 @@ fun VerticalTabRail(
                 ) {
                     Text(
                         text = tab.label,
-                        color = if (isSelected) Color.White else ClinicalTextDark,
+                        color = if (isSelected) Color(0xFF06151C) else tabAccent,
                         fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         modifier = Modifier.verticalRotate90()
                     )
@@ -543,18 +557,26 @@ private fun PatientDrawerContent(
         }
 
         item {
+            val isPeds = activeCase.isPediatricOrInfant
+            val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, onDarkMonitorWell = false)
+            val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, onDarkMonitorWell = false)
+            val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, onDarkMonitorWell = false)
+            val spo2Style = ClinicalSeverityEngine.assessSpo2(vitals.spo2, onDarkMonitorWell = false)
+            val tempStyle = ClinicalSeverityEngine.assessTemp(vitals.tempCelsius, onDarkMonitorWell = false)
+            val etco2Style = ClinicalSeverityEngine.assessEtco2(vitals.etco2, onDarkMonitorWell = false)
+
             ClinicalSectionHeader("Live Vital Signs (${vitals.rhythmLabel})")
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                LightVitalChip("BP", vitals.bpDisplay, ArterialRed, Modifier.weight(1f))
-                LightVitalChip("HR", "${vitals.hr}", EcgEmerald, Modifier.weight(1f))
-                LightVitalChip("RR", "${vitals.rr}", ClinicalActiveBlue, Modifier.weight(1f))
+                LightVitalChip("BP", vitals.bpDisplay, bpStyle, Modifier.weight(1f))
+                LightVitalChip("HR", "${vitals.hr}", hrStyle, Modifier.weight(1f))
+                LightVitalChip("RR", "${vitals.rr}", rrStyle, Modifier.weight(1f))
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                LightVitalChip("SpO₂", vitals.spo2?.let { "$it%" } ?: "None", Spo2Sky, Modifier.weight(1f))
-                LightVitalChip("Temp", "${vitals.tempCelsius}°C", CapnoAmber, Modifier.weight(1f))
-                LightVitalChip("EtCO₂", "${vitals.etco2}", ClinicalNavyHeader, Modifier.weight(1f))
+                LightVitalChip("SpO₂", vitals.spo2?.let { "$it%" } ?: "None", spo2Style, Modifier.weight(1f))
+                LightVitalChip("Temp", "${vitals.tempCelsius}°C", tempStyle, Modifier.weight(1f))
+                LightVitalChip("EtCO₂", "${vitals.etco2}", etco2Style, Modifier.weight(1f))
             }
         }
 
@@ -576,8 +598,8 @@ private fun PatientDrawerContent(
             Button(
                 onClick = onOpenFullScreenTablet,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ClinicalNavyHeader,
-                    contentColor = Color.White
+                    containerColor = ErSimCyan,
+                    contentColor = Color(0xFF06151C)
                 ),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
@@ -593,19 +615,40 @@ private fun PatientDrawerContent(
 }
 
 @Composable
-private fun LightVitalChip(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+private fun LightVitalChip(
+    label: String,
+    value: String,
+    style: ClinicalColorStyle,
+    modifier: Modifier = Modifier
+) {
     Surface(
-        color = ClinicalSurfaceLight,
-        shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.45f)),
+        color = style.containerTint,
+        shape = RoundedCornerShape(9.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            if (style.isCritical) 1.6.dp else 1.dp,
+            style.borderColor
+        ),
         modifier = modifier
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
         ) {
-            Text(label, color = ClinicalTextMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-            Text(value, color = color, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+            Text(label, color = ClinicalTextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(value, color = style.accent, fontSize = 14.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(2.dp))
+            Surface(
+                color = if (style.isCritical) style.accent else style.accent.copy(alpha = 0.20f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = style.badgeText,
+                    color = if (style.isCritical) Color.White else style.accent,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
         }
     }
 }
@@ -833,31 +876,87 @@ private fun InvestigationsDrawerContent(
             }
         } else {
             val allLabs = activeCase.abgVbgReports + activeCase.labReports
-            items(allLabs) { lab ->
-                val flagColor = when (lab.flag) {
-                    LabFlag.CRITICAL -> ArterialRed
-                    LabFlag.HIGH -> CapnoAmber
-                    LabFlag.LOW -> Spo2Sky
-                    LabFlag.NORMAL -> EcgEmerald
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(ClinicalSurfaceLight, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(lab.testName, color = ClinicalTextDark, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        Text("${lab.category} • Ref: ${lab.referenceRange}", color = ClinicalTextMuted, fontSize = 11.sp)
+            val critCount = allLabs.count { it.flag == LabFlag.CRITICAL }
+            val highCount = allLabs.count { it.flag == LabFlag.HIGH }
+            val lowCount = allLabs.count { it.flag == LabFlag.LOW }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (critCount > 0) {
+                        Surface(color = ErSimRed, shape = RoundedCornerShape(6.dp)) {
+                            Text("$critCount CRIT", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
                     }
-                    Text(
-                        text = "${lab.value} ${lab.unit}".trim(),
-                        color = flagColor,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 13.sp
-                    )
+                    if (highCount > 0) {
+                        Surface(color = ErSimAmber.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp)) {
+                            Text("$highCount HIGH", color = ErSimAmber, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+                    if (lowCount > 0) {
+                        Surface(color = ErSimSky.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp)) {
+                            Text("$lowCount LOW", color = ErSimSky, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+                }
+            }
+            items(allLabs) { lab ->
+                val style = ClinicalSeverityEngine.labStyle(lab.flag, onDarkMonitorWell = false)
+                Surface(
+                    color = style.containerTint,
+                    shape = RoundedCornerShape(9.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        if (style.isCritical) 1.5.dp else 1.dp,
+                        style.borderColor
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .fillMaxHeight()
+                                .background(style.accent)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    lab.testName,
+                                    color = ClinicalTextDark,
+                                    fontWeight = if (style.isCritical) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
+                                Text("${lab.category} • Ref: ${lab.referenceRange}", color = ClinicalTextMuted, fontSize = 11.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "${lab.value} ${lab.unit}".trim(),
+                                    color = style.accent,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.5.sp
+                                )
+                                Surface(
+                                    color = if (style.isCritical) style.accent else style.accent.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = style.badgeText,
+                                        color = if (style.isCritical) Color.White else style.accent,
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

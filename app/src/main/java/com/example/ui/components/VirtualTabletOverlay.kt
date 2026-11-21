@@ -353,36 +353,98 @@ private fun TabletPatientAndVitalsTab(
             }
         }
 
-        // 2. Initial & Live Patient Vitals Grid
+        // 2. Initial & Live Patient Vitals Grid (Dynamically Color-Coded by Clinical Severity)
         item {
+            val isPeds = activeCase.isPediatricOrInfant
+            val bpStyle = ClinicalSeverityEngine.assessBloodPressure(vitals.systolic, vitals.diastolic, isPeds, onDarkMonitorWell = true)
+            val hrStyle = ClinicalSeverityEngine.assessHeartRate(vitals.hr, isPeds, onDarkMonitorWell = true)
+            val rrStyle = ClinicalSeverityEngine.assessRespRate(vitals.rr, isPeds, onDarkMonitorWell = true)
+            val spo2Style = ClinicalSeverityEngine.assessSpo2(vitals.spo2, onDarkMonitorWell = true)
+            val tempStyle = ClinicalSeverityEngine.assessTemp(vitals.tempCelsius, onDarkMonitorWell = true)
+            val etco2Style = ClinicalSeverityEngine.assessEtco2(vitals.etco2, onDarkMonitorWell = true)
+            val critTags = ClinicalSeverityEngine.criticalVitalTags(vitals, isPeds)
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0A1727)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, EcgEmerald)
+                border = androidx.compose.foundation.BorderStroke(
+                    if (critTags.isNotEmpty()) 1.8.dp else 1.dp,
+                    if (critTags.isNotEmpty()) MonitorRed else MonitorMint
+                )
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "INITIAL & LIVE TELEMETRY VITALS (SYNCED WITH 3D MONITOR)",
-                        color = EcgEmerald,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 12.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "INITIAL & LIVE TELEMETRY VITALS",
+                            color = if (critTags.isNotEmpty()) MonitorRed else MonitorMint,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp
+                        )
+                        if (critTags.isNotEmpty()) {
+                            Surface(
+                                color = MonitorRed,
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "${critTags.size} CRITICAL",
+                                    color = Color(0xFF1B0308),
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        VitalMetricBox("BP", vitals.bpDisplay, bpStyle, Modifier.weight(1f))
+                        VitalMetricBox("HR", "${vitals.hr}", hrStyle, Modifier.weight(1f))
+                        VitalMetricBox("RR", "${vitals.rr}", rrStyle, Modifier.weight(1f))
+                        VitalMetricBox("SpO₂", vitals.spo2?.let { "$it%" } ?: "None", spo2Style, Modifier.weight(1f))
+                        VitalMetricBox("Temp", "${vitals.tempCelsius}°C", tempStyle, Modifier.weight(1f))
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        VitalMetricBox("BP (mmHg)", vitals.bpDisplay, ArterialRed, Modifier.weight(1f))
-                        VitalMetricBox("HR (bpm)", "${vitals.hr}", EcgEmerald, Modifier.weight(1f))
-                        VitalMetricBox("RR (/min)", "${vitals.rr}", TelemetryCyan, Modifier.weight(1f))
-                        VitalMetricBox("SpO₂ (%)", vitals.spo2?.let { "$it%" } ?: "None", Spo2Sky, Modifier.weight(1f))
-                        VitalMetricBox("Temp (°C)", "${vitals.tempCelsius}°C", CapnoAmber, Modifier.weight(1f))
+                        val rhythmStyle = ClinicalSeverityEngine.styleFor(
+                            ClinicalSeverityEngine.assessRhythm(vitals.rhythmLabel),
+                            onDarkMonitorWell = true
+                        )
+                        Surface(
+                            color = rhythmStyle.containerTint,
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, rhythmStyle.borderColor)
+                        ) {
+                            Text(
+                                text = "Rhythm: ${vitals.rhythmLabel}",
+                                color = rhythmStyle.accent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                        Surface(
+                            color = etco2Style.containerTint,
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, etco2Style.borderColor)
+                        ) {
+                            Text(
+                                text = "EtCO₂: ${vitals.etco2} mmHg (${etco2Style.badgeText})",
+                                color = etco2Style.accent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "Cardiac Rhythm: ${vitals.rhythmLabel} • EtCO₂: ${vitals.etco2} mmHg",
-                        color = TextSecondaryMuted,
-                        fontSize = 11.sp
-                    )
                 }
             }
         }
@@ -558,21 +620,43 @@ private fun TabletPatientAndVitalsTab(
 private fun VitalMetricBox(
     label: String,
     value: String,
-    accent: Color,
+    style: ClinicalColorStyle,
     modifier: Modifier = Modifier
 ) {
+    val bg = when (style.severity) {
+        ClinicalSeverity.CRITICAL -> Color(0xFF240B16)
+        ClinicalSeverity.HIGH -> Color(0xFF211909)
+        ClinicalSeverity.LOW -> Color(0xFF091E30)
+        ClinicalSeverity.NORMAL -> Color(0xFF0E2034)
+    }
     Surface(
-        color = Color(0xFF102035),
+        color = bg,
         shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.65f)),
+        border = androidx.compose.foundation.BorderStroke(
+            if (style.isCritical) 1.6.dp else 1.dp,
+            style.borderColor
+        ),
         modifier = modifier
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
+            modifier = Modifier.padding(vertical = 7.dp, horizontal = 4.dp)
         ) {
-            Text(text = label, color = TextSecondaryMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-            Text(text = value, color = accent, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+            Text(text = label, color = MonitorTextMuted, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+            Text(text = value, color = style.accent, fontSize = 14.5.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(2.dp))
+            Surface(
+                color = if (style.isCritical) style.accent else style.accent.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = style.badgeText,
+                    color = if (style.isCritical) Color(0xFF1B0308) else style.accent,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
         }
     }
 }
@@ -597,11 +681,11 @@ private fun TabletSurveyAndExamTab(activeCase: OralBoardCase) {
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 13.sp
                     )
-                    SurveyLine("A • Airway", survey.airway)
-                    SurveyLine("B • Breathing", survey.breathing)
-                    SurveyLine("C • Circulation", survey.circulation)
-                    SurveyLine("D • Disability (Neuro / GCS / Pupils / POC Glucose)", survey.disability)
-                    SurveyLine("E • Exposure & Environmental", survey.exposure)
+                    SurveyLine("A • Airway", survey.airway, MonitorSky)
+                    SurveyLine("B • Breathing", survey.breathing, MonitorCyan)
+                    SurveyLine("C • Circulation", survey.circulation, MonitorRed)
+                    SurveyLine("D • Disability (Neuro / GCS / Pupils / POC Glucose)", survey.disability, MonitorViolet)
+                    SurveyLine("E • Exposure & Environmental", survey.exposure, MonitorAmber)
                 }
             }
         }
@@ -621,13 +705,13 @@ private fun TabletSurveyAndExamTab(activeCase: OralBoardCase) {
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 13.sp
                     )
-                    SurveyLine("General Appearance", exam.generalAppearance)
-                    SurveyLine("HEENT & Neck", exam.heentAndNeck)
-                    SurveyLine("Chest & Lungs", exam.chestAndLungs)
-                    SurveyLine("Cardiovascular", exam.cardiovascular)
-                    SurveyLine("Abdomen, Pelvis & GU", exam.abdomenAndPelvis)
-                    SurveyLine("Extremities & Skin", exam.extremitiesAndSkin)
-                    SurveyLine("Neurologic", exam.neurologic)
+                    SurveyLine("General Appearance", exam.generalAppearance, MonitorMint)
+                    SurveyLine("HEENT & Neck", exam.heentAndNeck, MonitorSky)
+                    SurveyLine("Chest & Lungs", exam.chestAndLungs, MonitorCyan)
+                    SurveyLine("Cardiovascular", exam.cardiovascular, MonitorRed)
+                    SurveyLine("Abdomen, Pelvis & GU", exam.abdomenAndPelvis, MonitorAmber)
+                    SurveyLine("Extremities & Skin", exam.extremitiesAndSkin, MonitorOrange)
+                    SurveyLine("Neurologic", exam.neurologic, MonitorViolet)
                 }
             }
         }
@@ -635,73 +719,130 @@ private fun TabletSurveyAndExamTab(activeCase: OralBoardCase) {
 }
 
 @Composable
-private fun SurveyLine(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = 2.dp)) {
-        Text(text = label, color = CapnoAmber, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-        Text(text = value, color = TextPrimaryLight, fontSize = 12.sp)
+private fun SurveyLine(label: String, value: String, accent: Color = CapnoAmber) {
+    Surface(
+        color = accent.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.30f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text(text = label, color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+            Text(text = value, color = TextPrimaryLight, fontSize = 12.sp)
+        }
     }
 }
 
 @Composable
 private fun TabletLabsAndAbgTab(activeCase: OralBoardCase) {
     val allLabs = activeCase.abgVbgReports + activeCase.labReports
+    val critCount = allLabs.count { it.flag == LabFlag.CRITICAL }
+    val highCount = allLabs.count { it.flag == LabFlag.HIGH }
+    val lowCount = allLabs.count { it.flag == LabFlag.LOW }
+    val normCount = allLabs.count { it.flag == LabFlag.NORMAL }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Text(
-                text = "LABORATORY & ARTERIAL/VENOUS BLOOD GAS REPORT (UNLOCKED BY Q2 • Case #${activeCase.caseNumber})",
-                color = TelemetryCyan,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 13.sp
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "LABORATORY & ARTERIAL/VENOUS BLOOD GAS REPORT (UNLOCKED BY Q2 • Case #${activeCase.caseNumber})",
+                    color = MonitorCyan,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 13.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (critCount > 0) TabletSeverityChip("$critCount CRITICAL", MonitorRed, filled = true)
+                    if (highCount > 0) TabletSeverityChip("$highCount HIGH", MonitorAmber)
+                    if (lowCount > 0) TabletSeverityChip("$lowCount LOW", MonitorSky)
+                    TabletSeverityChip("$normCount NORMAL", MonitorMint)
+                }
+            }
         }
         items(allLabs) { lab ->
-            val flagColor = when (lab.flag) {
-                LabFlag.CRITICAL -> ArterialRed
-                LabFlag.HIGH -> CapnoAmber
-                LabFlag.LOW -> Spo2Sky
-                LabFlag.NORMAL -> EcgEmerald
-            }
+            val style = ClinicalSeverityEngine.labStyle(lab.flag, onDarkMonitorWell = true)
             Surface(
-                color = ResusCardDark,
+                color = style.containerTint,
                 shape = RoundedCornerShape(10.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, flagColor.copy(alpha = 0.6f)),
+                border = androidx.compose.foundation.BorderStroke(
+                    if (style.isCritical) 1.6.dp else 1.dp,
+                    style.borderColor
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
                 ) {
-                    Column(modifier = Modifier.weight(1.2f)) {
-                        Text(text = lab.testName, color = TextPrimaryLight, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Text(text = "${lab.category} • Ref: ${lab.referenceRange}", color = TextSecondaryMuted, fontSize = 11.sp)
-                    }
+                    Box(
+                        modifier = Modifier
+                            .width(4.5.dp)
+                            .fillMaxHeight()
+                            .background(style.accent)
+                    )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp, vertical = 9.dp)
                     ) {
-                        Text(
-                            text = "${lab.value} ${lab.unit}".trim(),
-                            color = flagColor,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp
-                        )
-                        Surface(
-                            color = flagColor.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(6.dp)
+                        Column(modifier = Modifier.weight(1.2f)) {
+                            Text(
+                                text = lab.testName,
+                                color = MonitorTextLight,
+                                fontWeight = if (style.isCritical) FontWeight.ExtraBold else FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "${lab.category} • Ref: ${lab.referenceRange}",
+                                color = MonitorTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = lab.flag.name,
-                                color = flagColor,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                text = "${lab.value} ${lab.unit}".trim(),
+                                color = style.accent,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 14.5.sp
                             )
+                            Surface(
+                                color = if (style.isCritical) style.accent else style.accent.copy(alpha = 0.22f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = style.badgeText,
+                                    color = if (style.isCritical) Color(0xFF1B0308) else style.accent,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 9.5.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TabletSeverityChip(label: String, accent: Color, filled: Boolean = false) {
+    Surface(
+        color = if (filled) accent else accent.copy(alpha = 0.18f),
+        shape = RoundedCornerShape(6.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.75f))
+    ) {
+        Text(
+            text = label,
+            color = if (filled) Color(0xFF1B0308) else accent,
+            fontWeight = FontWeight.Black,
+            fontSize = 10.sp,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+        )
     }
 }
 

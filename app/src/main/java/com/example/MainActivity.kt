@@ -34,6 +34,9 @@ import com.example.ui.app.AppViewModel
 import com.example.ui.app.ErSimAppShell
 import com.example.ui.app.OnboardingScreen
 import com.example.ui.app.ThemeMode
+import com.example.ui.app.InteractiveCaseSummary
+import com.example.ui.game.GameScreen
+import com.example.ui.game.GameViewModel
 import com.example.ui.components.*
 import com.example.ui.theme.*
 
@@ -56,11 +59,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ErSimRoot(
     appViewModel: AppViewModel = viewModel(),
-    simViewModel: SimViewModel = viewModel()
+    simViewModel: SimViewModel = viewModel(),
+    gameViewModel: GameViewModel = viewModel()
 ) {
     val appState by appViewModel.state.collectAsStateWithLifecycle()
     val simState by simViewModel.uiState.collectAsStateWithLifecycle()
     var inSimulation by rememberSaveable { mutableStateOf(false) }
+    var inGame by rememberSaveable { mutableStateOf(false) }
+    val gameState by gameViewModel.state.collectAsStateWithLifecycle()
+    // After process death the game session is gone: fall back to Home
+    LaunchedEffect(inGame, gameState.isPlaying, gameState.cases) {
+        if (inGame && !gameState.isPlaying && (gameState.cases.isNotEmpty() || gameState.loadError != null)) inGame = false
+    }
 
     // Theme: app screens follow the setting; the resus bay is always dark
     val systemDark = isSystemInDarkTheme()
@@ -69,7 +79,7 @@ fun ErSimRoot(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val useDark = inSimulation || appDark
+    val useDark = inSimulation || inGame || appDark
     val activity = LocalContext.current as? ComponentActivity
     LaunchedEffect(useDark) {
         activity?.enableEdgeToEdge(
@@ -106,14 +116,23 @@ fun ErSimRoot(
     }
 
     val view = LocalView.current
-    DisposableEffect(inSimulation, appState.settings.keepScreenOnInCase) {
-        view.keepScreenOn = inSimulation && appState.settings.keepScreenOnInCase
+    DisposableEffect(inSimulation, inGame, appState.settings.keepScreenOnInCase) {
+        view.keepScreenOn = (inSimulation || inGame) && appState.settings.keepScreenOnInCase
         onDispose { view.keepScreenOn = false }
     }
 
     MyApplicationTheme(darkTheme = useDark) {
     when {
         !appState.onboardingDone -> OnboardingScreen(onDone = appViewModel::completeOnboarding)
+
+        inGame -> GameScreen(
+            vm = gameViewModel,
+            onExit = {
+                gameViewModel.exitGame()
+                inGame = false
+            },
+            onFinished = appViewModel::recordInteractiveResult
+        )
 
         inSimulation -> ErResusSimulationApp(
             simViewModel = simViewModel,
@@ -144,7 +163,22 @@ fun ErSimRoot(
             onResetEverything = appViewModel::resetEverything,
             onLogOut = {
                 inSimulation = false
+                inGame = false
                 appViewModel.logOut()
+            },
+            interactiveCases = gameState.cases.map {
+                InteractiveCaseSummary(
+                    it.meta.caseId,
+                    it.meta.title,
+                    it.meta.category,
+                    it.meta.difficulty,
+                    it.meta.estimatedMinutes,
+                    it.meta.reviewStatus
+                )
+            },
+            onPlayInteractive = { id ->
+                gameViewModel.startCase(id)
+                inGame = true
             }
         )
     }

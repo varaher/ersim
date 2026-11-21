@@ -49,6 +49,16 @@ class CaseEngineTest {
         expectFailure { CaseParser.parse(broken) }
     }
 
+    @Test fun approvedCase_withoutReviewer_isRejected() {
+        val approved = File(caseFile()).readText().replace("\"reviewStatus\": \"DRAFT\"", "\"reviewStatus\": \"APPROVED\"")
+        expectFailure { CaseParser.parse(approved) }
+    }
+
+    @Test fun sessionFromAnotherCaseVersion_isRejected() {
+        val old = CaseEngine.start(def).copy(caseVersion = 999)
+        expectFailure { CaseEngine.reduce(def, old, SimEvent.Advance(1)) }
+    }
+
     @Test fun condition_parserRejectsUnknownSyntax() {
         expectFailure { Condition.parse("vitals.map<65") }
         assertEquals(Condition.VitalCompare("sbp", "<", 90), Condition.parse("vitals.sbp<90"))

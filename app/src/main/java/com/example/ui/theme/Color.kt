@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 // ============================================================================
-// ER SIM PALETTES (Dark = approved V2 spec, Light = contrast-checked ≥4.5:1)
+// ER SIM PALETTES (Dark = vibrant clinical V2, Light = contrast-checked ≥4.5:1)
 // All ErSim* names below read the ACTIVE palette, so every existing screen
 // switches theme with no other code changes. MyApplicationTheme sets it.
 // ============================================================================
@@ -24,6 +24,11 @@ data class ErSimPalette(
     val textMuted: Color,
     val red: Color,
     val amber: Color,
+    val sky: Color,
+    val cyan: Color,
+    val violet: Color,
+    val rose: Color,
+    val orange: Color,
     val vitalWell: Color,
     val waveWell: Color,
     val outputWell: Color,
@@ -36,32 +41,42 @@ val ErSimDarkPalette = ErSimPalette(
     surface = Color(0xFF102234),
     raisedSurface = Color(0xFF172E43),
     border = Color(0xFF29445A),
-    accent = Color(0xFF51E3B2),
-    textPrimary = Color(0xFFE8F4FA),
-    textMuted = Color(0xFF92ABBA),
-    red = Color(0xFFFF687B),
-    amber = Color(0xFFFFCB74),
-    vitalWell = Color(0xFF061723),
-    waveWell = Color(0xFF030D13),
-    outputWell = Color(0xFF0B1D2B),
-    headerBg = Color(0xFF0D1C2B)
+    accent = Color(0xFF34F5B2),      // Vibrant clinical emerald-mint
+    textPrimary = Color(0xFFEAF6FC),
+    textMuted = Color(0xFF93B0C2),
+    red = Color(0xFFFF4D6D),         // Vivid critical crimson
+    amber = Color(0xFFFFC857),       // Bright warning amber-gold
+    sky = Color(0xFF38BDF8),         // Crisp oxygen / low-value sky blue
+    cyan = Color(0xFF22D3EE),        // Electric telemetry cyan
+    violet = Color(0xFFB388FF),      // Diagnostic / lab / neuro violet
+    rose = Color(0xFFFB7185),        // Cardiac / paediatric rose
+    orange = Color(0xFFFF9248),      // Defib / high-alert orange
+    vitalWell = Color(0xFF061623),
+    waveWell = Color(0xFF030D14),
+    outputWell = Color(0xFF0A1B2A),
+    headerBg = Color(0xFF0C1C2C)
 )
 
 val ErSimLightPalette = ErSimPalette(
     isDark = false,
-    bg = Color(0xFFF3F6F9),
+    bg = Color(0xFFF1F6FA),
     surface = Color(0xFFFFFFFF),
-    raisedSurface = Color(0xFFE9EFF4),
-    border = Color(0xFFD2DCE5),
-    accent = Color(0xFF087A5B),
-    textPrimary = Color(0xFF0F1E2C),
-    textMuted = Color(0xFF55687B),
-    red = Color(0xFFC42A42),
-    amber = Color(0xFF8A5400),
-    // Monitor wells stay dark in both themes (real monitors are dark)
-    vitalWell = Color(0xFF061723),
-    waveWell = Color(0xFF030D13),
-    outputWell = Color(0xFF0B1D2B),
+    raisedSurface = Color(0xFFE6EFF6),
+    border = Color(0xFFCBD9E6),
+    accent = Color(0xFF05825E),      // Deep emerald for >=4.5:1 on light
+    textPrimary = Color(0xFF0E1F2F),
+    textMuted = Color(0xFF4F667A),
+    red = Color(0xFFD11F3E),         // High-contrast clinical crimson
+    amber = Color(0xFFB45309),       // Deep warm amber
+    sky = Color(0xFF0277BD),         // High-contrast clinical blue
+    cyan = Color(0xFF00838F),        // Deep telemetry teal-cyan
+    violet = Color(0xFF6D28D9),      // Deep clinical indigo-violet
+    rose = Color(0xFFBE185D),        // Crisp rose
+    orange = Color(0xFFC2410C),      // Deep alert orange
+    // Monitor wells stay dark in both themes (real bedside monitors are dark)
+    vitalWell = Color(0xFF061623),
+    waveWell = Color(0xFF030D14),
+    outputWell = Color(0xFF0A1B2A),
     headerBg = Color(0xFFFFFFFF)
 )
 
@@ -70,7 +85,7 @@ object ErSimThemeState {
     var palette by mutableStateOf(ErSimDarkPalette)
 }
 
-// ER SIM Native Android UI V2 tokens (now theme-aware)
+// ER SIM Native Android UI V2 tokens (theme-aware)
 val ErSimBg: Color get() = ErSimThemeState.palette.bg
 val ErSimSurface: Color get() = ErSimThemeState.palette.surface
 val ErSimRaisedSurface: Color get() = ErSimThemeState.palette.raisedSurface
@@ -80,10 +95,26 @@ val ErSimTextPrimary: Color get() = ErSimThemeState.palette.textPrimary
 val ErSimTextMuted: Color get() = ErSimThemeState.palette.textMuted
 val ErSimRed: Color get() = ErSimThemeState.palette.red
 val ErSimAmber: Color get() = ErSimThemeState.palette.amber
+val ErSimSky: Color get() = ErSimThemeState.palette.sky
+val ErSimCyan: Color get() = ErSimThemeState.palette.cyan
+val ErSimViolet: Color get() = ErSimThemeState.palette.violet
+val ErSimRose: Color get() = ErSimThemeState.palette.rose
+val ErSimOrange: Color get() = ErSimThemeState.palette.orange
 val ErSimVitalWell: Color get() = ErSimThemeState.palette.vitalWell
 val ErSimWaveWell: Color get() = ErSimThemeState.palette.waveWell
 val ErSimOutputWell: Color get() = ErSimThemeState.palette.outputWell
 val ErSimHeaderBg: Color get() = ErSimThemeState.palette.headerBg
+
+// Monitor-specific bright tokens (always rendered inside dark monitor wells)
+val MonitorMint = Color(0xFF34F5B2)
+val MonitorRed = Color(0xFFFF4D6D)
+val MonitorAmber = Color(0xFFFFC857)
+val MonitorSky = Color(0xFF38BDF8)
+val MonitorCyan = Color(0xFF22D3EE)
+val MonitorViolet = Color(0xFFB388FF)
+val MonitorOrange = Color(0xFFFF9248)
+val MonitorTextLight = Color(0xFFEAF6FC)
+val MonitorTextMuted = Color(0xFF93B0C2)
 
 // Backward-compatible semantic aliases used by reusable drawers, modals & telemetry
 val ResusNavyBg: Color get() = ErSimBg
@@ -91,22 +122,22 @@ val ResusSurfaceDark: Color get() = ErSimSurface
 val ResusCardDark: Color get() = ErSimRaisedSurface
 val ResusBorderBlue: Color get() = ErSimBorder
 
-val TelemetryCyan = Color(0xFF00E5FF)
+val TelemetryCyan: Color get() = ErSimCyan
 val EcgEmerald: Color get() = ErSimMint
 val ArterialRed: Color get() = ErSimRed
 val CapnoAmber: Color get() = ErSimAmber
-val Spo2Sky = Color(0xFF38BDF8)
-val DefibOrange = Color(0xFFFB923C)
-val ClinicalViolet = Color(0xFFA855F7)
+val Spo2Sky: Color get() = ErSimSky
+val DefibOrange: Color get() = ErSimOrange
+val ClinicalViolet: Color get() = ErSimViolet
 
 val TextPrimaryLight: Color get() = ErSimTextPrimary
 val TextSecondaryMuted: Color get() = ErSimTextMuted
 
-// Clinical Drawer Aliases
-val ClinicalNavyHeader: Color get() = ErSimSurface
+// Clinical Drawer Aliases (high-contrast header text on ClinicalSheetWhite)
+val ClinicalNavyHeader: Color get() = ErSimCyan
 val ClinicalNavyDark: Color get() = ErSimHeaderBg
-val ClinicalCoralAccent: Color get() = ErSimMint
-val ClinicalActiveBlue: Color get() = ErSimMint
+val ClinicalCoralAccent: Color get() = ErSimRose
+val ClinicalActiveBlue: Color get() = ErSimSky
 val ClinicalIconBlue: Color get() = ErSimMint
 
 val ClinicalSheetWhite: Color get() = ErSimSurface

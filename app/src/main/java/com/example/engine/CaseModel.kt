@@ -285,6 +285,9 @@ object CaseParser {
         val dupes = (actionIds + historyIds).groupBy { it }.filter { it.value.size > 1 }.keys
         if (dupes.isNotEmpty()) errors += "Duplicate ids: $dupes"
         if (def.initialStateId !in stateIds) errors += "initialState '${def.initialStateId}' missing"
+        if (def.meta.version < 1) errors += "meta.version must be 1 or more"
+        if (def.meta.reviewStatus !in setOf("DRAFT", "IN_REVIEW", "APPROVED")) errors += "meta.reviewStatus must be DRAFT, IN_REVIEW or APPROVED"
+        if (def.meta.reviewStatus == "APPROVED" && def.meta.reviewers.none { it.isNotBlank() }) errors += "APPROVED case needs at least one named reviewer"
 
         fun checkCond(where: String, c: Condition) {
             when (c) {
