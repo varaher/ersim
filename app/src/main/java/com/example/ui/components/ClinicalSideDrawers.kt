@@ -194,6 +194,7 @@ fun ClinicalSideDrawerSheet(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .statusBarsPadding()
                     .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
@@ -291,7 +292,7 @@ private fun ClinicalGateLockedBox(
     onOpenQuestionGate: (QuestionGateType) -> Unit
 ) {
     Surface(
-        color = Color(0xFFF0F8FF),
+        color = ClinicalSurfaceLight,
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(1.5.dp, ClinicalActiveBlue),
         modifier = Modifier.fillMaxWidth()
@@ -374,17 +375,14 @@ private fun ExamDrawerContent(
             ClinicalExamItem("AIRWAY", "Perform Airway Exam", false, s.airway),
             ClinicalExamItem("BREATH", "Perform Breathing Exam", false, s.breathing),
             ClinicalExamItem("CIRC", "Perform Circulation Exam", false, s.circulation),
-            ClinicalExamItem("HEENT", "Perform HEENT Exam", false, p.heentAndNeck),
-            ClinicalExamItem("NECK", "Perform Neck Exam", false, p.heentAndNeck),
+            ClinicalExamItem("GENERAL", "General Appearance", false, p.generalAppearance),
+            ClinicalExamItem("HEENT", "Perform HEENT & Neck Exam", false, p.heentAndNeck),
             ClinicalExamItem("CARD", "Cardiovascular Exam", true, p.cardiovascular),
             ClinicalExamItem("PULM", "Pulmonary Exam", true, p.chestAndLungs),
-            ClinicalExamItem("ABD", "Perform Abdominal Exam", false, p.abdomenAndPelvis),
-            ClinicalExamItem("GU", "Perform Genitourinary Exam", false, p.abdomenAndPelvis),
+            ClinicalExamItem("ABD", "Perform Abdomen, Pelvis & GU Exam", false, p.abdomenAndPelvis),
             ClinicalExamItem("BACK", "Perform Back/Flank Exam", false, s.exposure),
-            ClinicalExamItem("MSK", "Perform Musculoskeletal Exam", false, p.extremitiesAndSkin),
-            ClinicalExamItem("SKIN", "Perform Skin Exam", false, p.extremitiesAndSkin),
-            ClinicalExamItem("NEURO", "Perform Neurological Exam", false, "${s.disability} ${p.neurologic}"),
-            ClinicalExamItem("PSYCH", "Perform Psychological Exam", false, p.generalAppearance)
+            ClinicalExamItem("SKIN", "Perform Skin & Extremities Exam", false, p.extremitiesAndSkin),
+            ClinicalExamItem("NEURO", "Perform Neurological Exam", false, "${s.disability} ${p.neurologic}")
         )
     }
 
@@ -470,9 +468,9 @@ private fun ExamDrawerContent(
 
                 AnimatedVisibility(visible = performed) {
                     Surface(
-                        color = Color(0xFFF2F8FC),
+                        color = ClinicalSurfaceLight,
                         shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCCE7F7)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ClinicalDividerGray),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 74.dp, top = 6.dp)
@@ -765,7 +763,7 @@ private fun DifferentialDrawerContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (done) Color(0xFFECFDF5) else ClinicalSurfaceLight)
+                    .background(if (done) EcgEmerald.copy(alpha = 0.15f) else ClinicalSurfaceLight)
                     .clickable { onToggleCriticalAction(action.id) }
                     .padding(10.dp)
             ) {
@@ -1136,7 +1134,7 @@ private fun HandoffDrawerContent(
             rankedRooms.forEachIndexed { idx, r ->
                 val rc = OralBoardRepository.getCaseByNumber(r.assignedCaseNumber)
                 Surface(
-                    color = if (idx == 0) Color(0xFFFFFBEB) else ClinicalSurfaceLight,
+                    color = if (idx == 0) CapnoAmber.copy(alpha = 0.15f) else ClinicalSurfaceLight,
                     shape = RoundedCornerShape(8.dp),
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,

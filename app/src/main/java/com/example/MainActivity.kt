@@ -87,6 +87,24 @@ fun ErSimRoot(
             if (simViewModel.uiState.value.showJoystickControl != appState.settings.showJoystickByDefault) simViewModel.toggleJoystickVisibility()
         }
     }
+    // Bay audio plays only while a case is open AND the app is in the foreground
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, inSimulation) {
+        fun sync() {
+            val visible = lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+            if (inSimulation && visible) simViewModel.resumeAudio() else simViewModel.pauseAudio()
+        }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) sync()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        sync()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            simViewModel.pauseAudio()
+        }
+    }
+
     val view = LocalView.current
     DisposableEffect(inSimulation, appState.settings.keepScreenOnInCase) {
         view.keepScreenOn = inSimulation && appState.settings.keepScreenOnInCase
@@ -123,7 +141,11 @@ fun ErSimRoot(
             onUpdateProfile = appViewModel::updateProfile,
             onUpdateSettings = appViewModel::updateSettings,
             onResetProgress = appViewModel::resetProgress,
-            onResetEverything = appViewModel::resetEverything
+            onResetEverything = appViewModel::resetEverything,
+            onLogOut = {
+                inSimulation = false
+                appViewModel.logOut()
+            }
         )
     }
     }

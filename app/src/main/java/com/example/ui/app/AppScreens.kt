@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
@@ -63,7 +64,8 @@ fun ErSimAppShell(
     onUpdateProfile: (UserProfile) -> Unit,
     onUpdateSettings: (AppSettings) -> Unit,
     onResetProgress: () -> Unit,
-    onResetEverything: () -> Unit
+    onResetEverything: () -> Unit,
+    onLogOut: () -> Unit
 ) {
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -123,13 +125,15 @@ fun ErSimAppShell(
                 )
                 AppTab.PROFILE -> ProfileScreen(
                     appState = appState,
-                    onSave = onUpdateProfile
+                    onSave = onUpdateProfile,
+                    onLogOut = onLogOut
                 )
                 AppTab.SETTINGS -> SettingsScreen(
                     settings = appState.settings,
                     onUpdateSettings = onUpdateSettings,
                     onResetProgress = onResetProgress,
                     onResetEverything = onResetEverything,
+                    onLogOut = onLogOut,
                     onOpenAbout = { showAbout = true }
                 )
             }
@@ -371,7 +375,8 @@ private fun CaseRow(case: OralBoardCase, started: Boolean, onClick: () -> Unit) 
 // ============================================================================
 
 @Composable
-private fun ProfileScreen(appState: AppPrefsState, onSave: (UserProfile) -> Unit) {
+private fun ProfileScreen(appState: AppPrefsState, onSave: (UserProfile) -> Unit, onLogOut: () -> Unit) {
+    var confirmLogOut by remember { mutableStateOf(false) }
     var name by rememberSaveable(appState.profile) { mutableStateOf(appState.profile.displayName) }
     var institution by rememberSaveable(appState.profile) { mutableStateOf(appState.profile.institution) }
     var role by remember(appState.profile) { mutableStateOf(appState.profile.role) }
@@ -428,6 +433,14 @@ private fun ProfileScreen(appState: AppPrefsState, onSave: (UserProfile) -> Unit
             onClick = { onSave(draft); savedNote = true }
         )
         Text("Your profile is stored only on this device.", color = ErSimTextMuted, fontSize = 11.sp)
+
+        ActionRow(Icons.AutoMirrored.Filled.Logout, "Log out", "Sign out of ER SIM on this device", danger = true) {
+            confirmLogOut = true
+        }
+    }
+
+    if (confirmLogOut) {
+        LogOutDialog(onConfirm = { confirmLogOut = false; onLogOut() }, onDismiss = { confirmLogOut = false })
     }
 
     if (showRolePicker) {
@@ -460,8 +473,10 @@ private fun SettingsScreen(
     onUpdateSettings: (AppSettings) -> Unit,
     onResetProgress: () -> Unit,
     onResetEverything: () -> Unit,
+    onLogOut: () -> Unit,
     onOpenAbout: () -> Unit
 ) {
+    var confirmLogOut by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -505,8 +520,17 @@ private fun SettingsScreen(
         SectionLabel("INFORMATION")
         ActionRow(Icons.Default.Info, "About ER SIM", "Version, purpose and disclaimer") { onOpenAbout() }
 
+        SectionLabel("ACCOUNT")
+        ActionRow(Icons.AutoMirrored.Filled.Logout, "Log out", "Sign out of ER SIM on this device", danger = true) {
+            confirmLogOut = true
+        }
+
         Spacer(Modifier.height(8.dp))
         Text("Version ${BuildConfig.VERSION_NAME}", color = ErSimTextMuted, fontSize = 11.sp)
+    }
+
+    if (confirmLogOut) {
+        LogOutDialog(onConfirm = { confirmLogOut = false; onLogOut() }, onDismiss = { confirmLogOut = false })
     }
 
     confirm?.let { which ->
@@ -532,6 +556,29 @@ private fun SettingsScreen(
             }
         )
     }
+}
+
+@Composable
+private fun LogOutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = ErSimSurface,
+        title = { Text("Log out?", color = ErSimTextPrimary) },
+        text = {
+            Text(
+                "Your profile and case progress on this device will be cleared. Display settings are kept.",
+                color = ErSimTextMuted
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, modifier = Modifier.testTag("logout_confirm")) {
+                Text("Log out", color = ErSimRed, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = ErSimTextMuted) }
+        }
+    )
 }
 
 // ============================================================================

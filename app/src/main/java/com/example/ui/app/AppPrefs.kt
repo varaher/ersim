@@ -169,6 +169,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetProgress() = mutate { it.copy(progress = CaseProgress()) }
 
+    /** Log out: clears this device's profile and progress, keeps display settings, returns to Welcome. */
+    fun logOut() = mutate { AppPrefsState(settings = it.settings) }
+
     fun resetEverything() {
         repo.clear()
         _state.value = AppPrefsState()

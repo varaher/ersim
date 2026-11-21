@@ -107,7 +107,7 @@ class SimViewModel : ViewModel() {
     val uiState: StateFlow<SimUiState> = _uiState.asStateFlow()
 
     init {
-        soundEngine.start(viewModelScope)
+        // Audio is started/stopped by the UI (only while a case is open and the app is visible)
         syncAudioWithState(_uiState.value)
 
         // Room Timer Loop (100ms = 1 decisecond tick for tie-breaker accuracy)
@@ -803,6 +803,16 @@ class SimViewModel : ViewModel() {
 
     fun setScenarioPickerOpen(open: Boolean) {
         _uiState.update { it.copy(isScenarioPickerOpen = open, isHamburgerMenuOpen = false) }
+    }
+
+    /** Start bay audio. Safe to call repeatedly. */
+    fun resumeAudio() {
+        soundEngine.start(viewModelScope)
+    }
+
+    /** Stop bay audio immediately (app in background, or user left the case). */
+    fun pauseAudio() {
+        soundEngine.stop()
     }
 
     override fun onCleared() {
